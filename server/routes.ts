@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { config } from "./environment";
 import { isAuthenticated, handleSimpleLogin, handleLogout } from "./auth";
 import "./types";
 import { requirePermission, requireRole, PERMISSIONS, ROLES, getUserPermissions } from "./permissions";
@@ -89,6 +90,9 @@ async function validateApiKey(req: any, res: any, next: any) {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // In-memory admin OTP store: key -> { code, expiresAt }
+  const adminOtpStore = new Map<string, { code: string; expiresAt: number }>();
+  const generateOtp = (len = 6) => Array.from({ length: len }, () => Math.floor(Math.random() * 10)).join("");
   // No auth middleware setup needed for simple session-based auth
 
   // Debug route for testing authentication
@@ -163,9 +167,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Simple authentication route (replaces Firebase)
   app.post('/api/auth/login', handleSimpleLogin);
 
-  // Admin: create/update user credentials (email, password, role, etc.)
-  app.post('/api/admin/users', isAuthenticated, requirePermission(PERMISSIONS.MANAGE_PERMISSIONS), async (req: any, res) => {
+  // Firebase session handoff: verify idToken with Firebase REST and create a server session
+  app.post('/api/auth/firebase-session', async (req: any, res) => {
     try {
+      const { idToken } = req.body || {};
+      if (!idToken) {
+        return res.status(400).json({ message: 'idToken is required' });
+      }
+      if (!config.FIREBASE_API_KEY) {
+        return res.status(500).json({ message: 'Firebase API key not configured on server' });
+      }
+
+      const lookupUrl = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(config.FIREBASE_API_KEY)}`;
+      const resp = await fetch(lookupUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.users || !Array.isArray(data.users) || data.users.length === 0) {
+        return res.status(401).json({ message: data?.error?.message || 'Invalid Firebase token' });
+      }
+      const fbUser = data.users[0];
+      const email = fbUser.email as string;
+      if (!email) {
+        return res.status(400).json({ message: 'Firebase user has no email' });
+      }
+
+      // Create a minimal session user
+      if (!req.session) req.session = {} as any;
+      (req.session as any).user = {
+        id: email,
+        email,
+        firstName: (email.split('@')[0]) || 'User',
+        lastName: ''
+      };
+
+      await new Promise((resolve, reject) => {
+        req.session.save((err: any) => (err ? reject(err) : resolve(true)));
+      });
+
+      return res.json({ success: true });
+    } catch (e: any) {
+      console.error('firebase-session error:', e);
+      return res.status(500).json({ message: 'Failed to create session from Firebase' });
+    }
+  });
+
+  // (OTP routes removed per request)
+
+  // Admin: create/update user credentials (email, password, role, etc.)
+  app.post('/api/admin/users', async (req: any, res) => {
+    try {
+      // Require admin panel key via header
+      const key = req.headers['x-admin-key'];
+      if (!key || key !== config.ADMIN_PANEL_KEY) {
+        return res.status(401).json({ message: 'Unauthorized: invalid admin key' });
+      }
       const { email, password, role, firstName, lastName, permissions, isActive } = req.body || {};
       if (!email || !password) {
         return res.status(400).json({ message: 'Email and password are required' });
@@ -181,8 +239,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin: set/update a user's password
-  app.post('/api/admin/users/:userId/password', isAuthenticated, requirePermission(PERMISSIONS.MANAGE_PERMISSIONS), async (req: any, res) => {
+  app.post('/api/admin/users/:userId/password', async (req: any, res) => {
     try {
+      const key = req.headers['x-admin-key'];
+      if (!key || key !== config.ADMIN_PANEL_KEY) {
+        return res.status(401).json({ message: 'Unauthorized: invalid admin key' });
+      }
       const { userId } = req.params;
       const { password } = req.body || {};
       if (!password) return res.status(400).json({ message: 'Password is required' });
@@ -2408,9 +2470,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin routes for user management - temporarily bypass auth for debugging
+  // Admin routes for user management (secured by admin key)
   app.get('/api/admin/users', async (req: any, res) => {
     try {
+      const key = req.headers['x-admin-key'];
+      if (!key || key !== config.ADMIN_PANEL_KEY) {
+        return res.status(401).json({ message: 'Unauthorized: invalid admin key' });
+      }
       console.log("Admin users endpoint - fetching all users");
       const users = await storage.getAllUsers();
       console.log(`Found ${users.length} users`);

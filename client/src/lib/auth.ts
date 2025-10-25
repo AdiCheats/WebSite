@@ -41,13 +41,7 @@ export class AuthService {
       localStorage.removeItem('user_logged_out');
       sessionStorage.removeItem('user_logged_out');
 
-      // Store account id for authenticated API requests
-      if (data && (data.account_id || (data.user && data.user.id))) {
-        const accountId = data.account_id || data.user.id;
-        try {
-          localStorage.setItem('account_id', accountId);
-        } catch {}
-      }
+      // Do not store account_id; rely on session cookie only
 
       return data;
     } catch (error) {

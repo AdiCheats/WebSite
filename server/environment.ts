@@ -7,6 +7,8 @@ export const config = {
   
   // Session
   SESSION_SECRET: process.env.SESSION_SECRET || 'fallback-secret-change-in-production',
+  // Admin Panel API Key (use environment var in production)
+  ADMIN_PANEL_KEY: process.env.ADMIN_PANEL_KEY || 'ADI_ADMIN_KEY-r9#T7!qZ2@xP8^mL4%wV0&uN6*sF1+Yb3$Kj5~GhQz',
   
   // Legacy Database (no longer used)
   DATABASE_URL: process.env.DATABASE_URL || '',
@@ -18,6 +20,7 @@ export const config = {
   
   // Firebase (optional - no longer used)
   VITE_FIREBASE_PROJECT_ID: process.env.VITE_FIREBASE_PROJECT_ID || '',
+  FIREBASE_API_KEY: process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || '',
   
   // Environment
   NODE_ENV: process.env.NODE_ENV || 'development',

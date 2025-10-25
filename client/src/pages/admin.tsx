@@ -1,343 +1,210 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Shield, Users, Key, Activity, AlertTriangle, Plus, Edit, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-
-const apiKeySchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  api_key: z.string().min(1, "Admin API key is required"),
-});
+import { Shield, Plus } from "lucide-react";
 
 export default function Admin() {
-  const [adminApiKey, setAdminApiKey] = useState("test-api-key-123");
   const { toast } = useToast();
 
-  const { data: users, isLoading: usersLoading } = useQuery({
-    queryKey: ['/api/admin/users'],
+  const [adminKey, setAdminKey] = useState("");
+  const [isAuthed, setIsAuthed] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newRole, setNewRole] = useState("user");
+  const [createdPasswords, setCreatedPasswords] = useState<Record<string, string>>({});
+
+  // Load users only after key is verified
+  const { data: users, isLoading: isUsersLoading } = useQuery({
+    queryKey: ["/api/admin/users", isAuthed, adminKey],
     queryFn: async () => {
-      const response = await fetch('/api/admin/users', {
-        headers: { 'x-api-key': adminApiKey }
+      const res = await fetch("/api/admin/users", {
+        headers: { "x-admin-key": adminKey },
+        credentials: "include",
       });
-      if (!response.ok) throw new Error('Failed to fetch users');
-      return response.json();
+      if (!res.ok) throw new Error("Failed to fetch users");
+      return res.json();
     },
-    enabled: !!adminApiKey,
+    enabled: isAuthed && !!adminKey,
   });
 
-  const { data: apiKeys, isLoading: apiKeysLoading } = useQuery({
-    queryKey: ['/api/admin/api-keys'],
-    queryFn: async () => {
-      const response = await fetch('/api/admin/api-keys', {
-        headers: { 'x-api-key': adminApiKey }
-      });
-      if (!response.ok) throw new Error('Failed to fetch API keys');
-      return response.json();
-    },
-    enabled: !!adminApiKey,
-  });
-
-  const toggleUserMutation = useMutation({
-    mutationFn: async (userId: number) => {
-      const response = await fetch(`/api/admin/users/${userId}/toggle`, {
-        method: 'PATCH',
-        headers: { 'x-api-key': adminApiKey }
-      });
-      if (!response.ok) throw new Error('Failed to toggle user status');
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-      toast({ title: "Success", description: "User status updated successfully" });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to update user status", variant: "destructive" });
-    },
-  });
-
-  const deleteUserMutation = useMutation({
-    mutationFn: async (userId: number) => {
-      const response = await fetch(`/api/admin/users/${userId}`, {
-        method: 'DELETE',
-        headers: { 'x-api-key': adminApiKey }
-      });
-      if (!response.ok) throw new Error('Failed to delete user');
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-      toast({ title: "Success", description: "User deleted successfully" });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to delete user", variant: "destructive" });
-    },
-  });
-
-  const createApiKeyMutation = useMutation({
-    mutationFn: async (data: { name: string }) => {
-      const response = await fetch('/api/admin/api-keys', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-api-key': adminApiKey 
+  const createUserMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": adminKey,
         },
-        body: JSON.stringify(data),
+        credentials: "include",
+        body: JSON.stringify({ email: newEmail, password: newPassword, role: newRole }),
       });
-      if (!response.ok) throw new Error('Failed to create API key');
-      return response.json();
+      if (!res.ok) {
+        const contentType = res.headers.get("content-type") || "";
+        const text = await res.text();
+        if (contentType.includes("application/json")) {
+          try {
+            const data = JSON.parse(text);
+            throw new Error(data.message || `Failed: ${res.status}`);
+          } catch {
+            throw new Error(`Failed: ${res.status}`);
+          }
+        }
+        throw new Error(text?.slice(0, 200) || `Failed: ${res.status}`);
+      }
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) return res.json();
+      return {};
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/api-keys'] });
-      toast({ title: "Success", description: "API key created successfully" });
+      setIsCreateOpen(false);
+      setNewEmail("");
+      setNewPassword("");
+      setNewRole("user");
+      setCreatedPasswords(prev => ({ ...prev, [newEmail]: newPassword }));
+      // refresh users list
+      try { (window as any).__rq && (window as any).__rq.invalidate?.(); } catch {}
+      toast({ title: "User created" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create API key", variant: "destructive" });
-    },
-  });
-
-  const form = useForm<z.infer<typeof apiKeySchema>>({
-    resolver: zodResolver(apiKeySchema),
-    defaultValues: {
-      name: "",
-      api_key: adminApiKey,
+    onError: (e: any) => {
+      toast({ title: "Error", description: e?.message || "Failed to create user", variant: "destructive" });
     },
   });
 
-  const onSubmit = (values: z.infer<typeof apiKeySchema>) => {
-    createApiKeyMutation.mutate({ name: values.name });
-    form.reset();
+  const handleVerifyKey = async () => {
+    try {
+      setVerifying(true);
+      const res = await fetch("/api/admin/users", {
+        headers: { "x-admin-key": adminKey },
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Invalid admin key");
+      setIsAuthed(true);
+      toast({ title: "Access granted" });
+    } catch (e: any) {
+      toast({ title: "Invalid key", description: e?.message || "Access denied", variant: "destructive" });
+    } finally {
+      setVerifying(false);
+    }
   };
 
-  const stats = {
-    totalUsers: users?.users?.length || 0,
-    activeUsers: users?.users?.filter((u: any) => u.isActive)?.length || 0,
-    totalApiKeys: apiKeys?.api_keys?.length || 0,
-    activeApiKeys: apiKeys?.api_keys?.filter((k: any) => k.isActive)?.length || 0,
-  };
+  if (!isAuthed) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center px-4">
+        <Card className="w-full max-w-md bg-card/80 border border-border/40">
+          <CardHeader className="text-center space-y-2">
+            <div className="flex items-center justify-center gap-2">
+              <Shield className="h-6 w-6 text-red-500" />
+              <CardTitle>Admin Panel</CardTitle>
+            </div>
+            <p className="text-sm text-muted-foreground">Enter the admin key to continue</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Input
+              placeholder="Admin key"
+              type="password"
+              value={adminKey}
+              onChange={(e) => setAdminKey(e.target.value)}
+            />
+            <Button className="w-full bg-red-600 hover:bg-red-700" onClick={handleVerifyKey} disabled={verifying || !adminKey.trim()}>
+              {verifying ? "Verifying…" : "Enter"}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-slate-800 flex items-center">
-                <Shield className="h-8 w-8 text-primary-custom mr-3" />
-                AuthAPI Admin Dashboard
-              </h1>
-              <p className="text-secondary-custom mt-2">Manage your users, API keys, and monitor authentication activity</p>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Input
-                placeholder="Enter admin API key"
-                value={adminApiKey}
-                onChange={(e) => setAdminApiKey(e.target.value)}
-                className="w-64"
-              />
-            </div>
+    <div className="min-h-screen bg-black text-white">
+      <div className="max-w-4xl mx-auto px-4 py-10">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">Admin Panel</h1>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              className="bg-neutral-900/60 border-border/40"
+              onClick={() => { window.location.href = "/"; }}
+            >
+              Home
+            </Button>
+            <Button
+              variant="outline"
+              className="bg-neutral-900/60 border-border/40"
+              onClick={() => { window.location.href = "/"; }}
+            >
+              Log out
+            </Button>
           </div>
+          <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-red-600 hover:bg-red-700">
+                <Plus className="h-4 w-4 mr-2" /> Add User
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="bg-card text-foreground">
+              <DialogHeader>
+                <DialogTitle>Create User</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-3 mt-2">
+                <Input placeholder="Email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+                <Input placeholder="Password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+                <select
+                  className="h-10 rounded-md bg-background border border-border px-3 text-sm"
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value)}
+                >
+                  <option value="owner">owner</option>
+                  <option value="admin">admin</option>
+                  <option value="staff">staff</option>
+                  <option value="moderator">moderator</option>
+                  <option value="user">user</option>
+                </select>
+              </div>
+              <div className="flex justify-end mt-4">
+                <Button onClick={() => createUserMutation.mutate()} disabled={createUserMutation.isPending || !newEmail || !newPassword}>
+                  {createUserMutation.isPending ? "Creating…" : "Create User"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid md:grid-cols-4 gap-6 mb-8">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-secondary-custom text-sm">Total Users</p>
-                  <p className="text-2xl font-bold text-slate-800">{stats.totalUsers}</p>
-                </div>
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <Users className="h-6 w-6 text-primary-custom" />
-                </div>
+        {/* Users list */}
+        <div className="mt-6">
+          {isUsersLoading ? (
+            <div className="text-sm text-muted-foreground">Loading users…</div>
+          ) : Array.isArray(users) && users.length > 0 ? (
+            <div className="overflow-hidden rounded-md border border-border/40">
+              <div className="grid grid-cols-3 text-xs uppercase tracking-wide bg-neutral-900/60 px-4 py-2">
+                <div>Email</div>
+                <div>Role / Password</div>
+                <div>Status</div>
               </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-secondary-custom text-sm">Active Users</p>
-                  <p className="text-2xl font-bold text-slate-800">{stats.activeUsers}</p>
-                </div>
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                  <Activity className="h-6 w-6 text-accent-custom" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-secondary-custom text-sm">Total API Keys</p>
-                  <p className="text-2xl font-bold text-slate-800">{stats.totalApiKeys}</p>
-                </div>
-                <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
-                  <Key className="h-6 w-6 text-orange-500" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-secondary-custom text-sm">Active Keys</p>
-                  <p className="text-2xl font-bold text-slate-800">{stats.activeApiKeys}</p>
-                </div>
-                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                  <Shield className="h-6 w-6 text-purple-500" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid lg:grid-cols-2 gap-8">
-          {/* Users Management */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>User Management</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {usersLoading ? (
-                <div className="text-center py-8">Loading users...</div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Username</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {users?.users?.map((user: any) => (
-                      <TableRow key={user.id}>
-                        <TableCell className="font-medium">{user.username}</TableCell>
-                        <TableCell>{user.email}</TableCell>
-                        <TableCell>
-                          <Badge variant={user.isActive ? "default" : "secondary"}>
-                            {user.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex space-x-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => toggleUserMutation.mutate(user.id)}
-                              disabled={toggleUserMutation.isPending}
-                            >
-                              {user.isActive ? "Deactivate" : "Activate"}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => deleteUserMutation.mutate(user.id)}
-                              disabled={deleteUserMutation.isPending}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* API Keys Management */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>API Keys</span>
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <Button size="sm">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create Key
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Create New API Key</DialogTitle>
-                    </DialogHeader>
-                    <Form {...form}>
-                      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                        <FormField
-                          control={form.control}
-                          name="name"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Key Name</FormLabel>
-                              <FormControl>
-                                <Input placeholder="My App Key" {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <Button type="submit" disabled={createApiKeyMutation.isPending}>
-                          Create API Key
-                        </Button>
-                      </form>
-                    </Form>
-                  </DialogContent>
-                </Dialog>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {apiKeysLoading ? (
-                <div className="text-center py-8">Loading API keys...</div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Key</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {apiKeys?.api_keys?.map((key: any) => (
-                      <TableRow key={key.id}>
-                        <TableCell className="font-medium">{key.name}</TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {key.key.substring(0, 20)}...
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={key.isActive ? "default" : "secondary"}>
-                            {key.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+              {users.map((u: any) => {
+                const email = u.email || u.id;
+                const pw = createdPasswords[email];
+                return (
+                  <div key={u.id} className="grid grid-cols-3 px-4 py-3 border-t border-border/30 text-sm">
+                    <div className="truncate">{email}</div>
+                    <div className="capitalize flex items-center gap-2">
+                      <span>{u.role || 'user'}</span>
+                      {pw && <span className="text-xs text-muted-foreground">/ {pw}</span>}
+                    </div>
+                    <div>{u.isActive === false ? 'inactive' : 'active'}</div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">No users found</div>
+          )}
         </div>
       </div>
     </div>

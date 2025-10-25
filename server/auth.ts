@@ -38,55 +38,20 @@ export const isAuthenticated = async (req: Request, res: Response, next: NextFun
       return next();
     }
 
-    // Check for session-based authentication
+    // Check for session-based authentication (trust session user)
     if (req.session && (req.session as any).user && (req.session as any).user.id) {
-      const userId = (req.session as any).user.id;
-      
-      // Verify the user still exists in memory
-      const user = users.get(userId);
-      if (user && user.isActive) {
-        req.user = {
-          claims: {
-            sub: user.id,
-            email: user.email
-          }
-        };
-        console.log("Auth successful from session");
-        return next();
-      } else {
-        // User doesn't exist or is inactive, clear session
-        console.log("User not found or inactive, clearing session");
-        delete (req.session as any).user;
-      }
+      const s = (req.session as any).user as any;
+      req.user = {
+        claims: {
+          sub: s.id,
+          email: s.email
+        }
+      };
+      console.log("Auth successful from session");
+      return next();
     }
 
-    // Check for account ID header (from API authentication)
-    const accountId = req.headers['x-account-id'];
-    if (accountId && !req.user) {
-      const user = users.get(accountId as string);
-      if (user && user.isActive) {
-        req.user = {
-          claims: {
-            sub: user.id,
-            email: user.email
-          }
-        };
-        // Also create a session for consistency
-        if (!req.session) {
-          req.session = {} as any;
-        }
-        if (!(req.session as any).destroying) {
-          (req.session as any).user = {
-            id: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName
-          };
-        }
-        console.log("Auth successful from account ID header");
-        return next();
-      }
-    }
+    // Removed insecure x-account-id header fallback; require session
 
     // No valid authentication found
     console.log("No valid authentication found");
@@ -125,8 +90,8 @@ export const handleSimpleLogin = async (req: Request, res: Response) => {
         return res.status(401).json({ success: false, message: 'Invalid credentials' });
       }
     } else {
-      // If no passwordHash is set, block login for safety
-      return res.status(401).json({ success: false, message: 'Account not configured. Contact admin.' });
+      // Block any user not created via Admin Panel (no passwordHash)
+      return res.status(401).json({ success: false, message: 'Only admin-created accounts can log in' });
     }
 
     // Map to session user format

@@ -25,11 +25,7 @@ export async function apiRequest(
     ...options?.headers
   };
   
-  // Add account ID header for authenticated requests
-  const accountId = localStorage.getItem('account_id');
-  if (accountId) {
-    headers['x-account-id'] = accountId;
-  }
+  // Use cookie session only; do not send x-account-id
 
   const res = await fetch(url, {
     method: options?.method || 'GET',
@@ -49,12 +45,6 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const headers: Record<string, string> = {};
-    
-    // Add account ID header for authenticated requests
-    const accountId = localStorage.getItem('account_id');
-    if (accountId) {
-      headers['x-account-id'] = accountId;
-    }
 
     const res = await fetch(queryKey[0] as string, {
       headers,

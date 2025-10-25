@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { authService } from "@/lib/auth";
+import { getFirebaseApp } from "@/lib/firebase";
+import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,7 +37,25 @@ export default function SimpleLogin() {
         return;
       }
 
-      await authService.login(email, password);
+      const app = getFirebaseApp();
+      if (app) {
+        const auth = getAuth(app);
+        const cred = await signInWithEmailAndPassword(auth, email, password);
+        const idToken = await cred.user.getIdToken();
+        // Create server session so API calls are authenticated
+        const r = await fetch('/api/auth/firebase-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ idToken }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.message || 'Failed to create session');
+        }
+      } else {
+        await authService.login(email, password);
+      }
 
       if (rememberMe) {
         localStorage.setItem('rememberedUsername', email);
@@ -47,7 +67,7 @@ export default function SimpleLogin() {
       localStorage.removeItem('user_logged_out');
       sessionStorage.removeItem('user_logged_out');
 
-      window.location.href = "/dashboard";
+      window.location.href = "/";
     } catch (err) {
       toast({ title: "Login failed", description: err instanceof Error ? err.message : "Authentication error", variant: "destructive" });
     } finally {
