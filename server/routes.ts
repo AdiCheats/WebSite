@@ -685,6 +685,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Pause a license key
+  app.post('/api/applications/:id/licenses/:licenseId/pause', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.id);
+      const licenseId = parseInt(req.params.licenseId);
+      const application = await storage.getApplication(applicationId);
+      if (!application) return res.status(404).json({ message: "Application not found" });
+      if (application.userId !== req.user.claims.sub) return res.status(403).json({ message: "Access denied" });
+      const license = await storage.getLicenseKey(licenseId);
+      if (!license || license.applicationId !== applicationId) return res.status(404).json({ message: "License key not found" });
+      const updated = await storage.updateLicenseKey(licenseId, { isActive: false });
+      res.json(updated);
+    } catch (err) {
+      console.error('Error pausing license:', err);
+      res.status(500).json({ message: 'Failed to pause license' });
+    }
+  });
+
+  // Resume a license key
+  app.post('/api/applications/:id/licenses/:licenseId/resume', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.id);
+      const licenseId = parseInt(req.params.licenseId);
+      const application = await storage.getApplication(applicationId);
+      if (!application) return res.status(404).json({ message: "Application not found" });
+      if (application.userId !== req.user.claims.sub) return res.status(403).json({ message: "Access denied" });
+      const license = await storage.getLicenseKey(licenseId);
+      if (!license || license.applicationId !== applicationId) return res.status(404).json({ message: "License key not found" });
+      const updated = await storage.updateLicenseKey(licenseId, { isActive: true });
+      res.json(updated);
+    } catch (err) {
+      console.error('Error resuming license:', err);
+      res.status(500).json({ message: 'Failed to resume license' });
+    }
+  });
+
+  // Ban a license key
+  app.post('/api/applications/:id/licenses/:licenseId/ban', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.id);
+      const licenseId = parseInt(req.params.licenseId);
+      const application = await storage.getApplication(applicationId);
+      if (!application) return res.status(404).json({ message: "Application not found" });
+      if (application.userId !== req.user.claims.sub) return res.status(403).json({ message: "Access denied" });
+      const license = await storage.getLicenseKey(licenseId);
+      if (!license || license.applicationId !== applicationId) return res.status(404).json({ message: "License key not found" });
+      const updated = await storage.updateLicenseKey(licenseId, { isBanned: true, isActive: false });
+      res.json(updated);
+    } catch (err) {
+      console.error('Error banning license:', err);
+      res.status(500).json({ message: 'Failed to ban license' });
+    }
+  });
+
+  // Unban a license key
+  app.post('/api/applications/:id/licenses/:licenseId/unban', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.id);
+      const licenseId = parseInt(req.params.licenseId);
+      const application = await storage.getApplication(applicationId);
+      if (!application) return res.status(404).json({ message: "Application not found" });
+      if (application.userId !== req.user.claims.sub) return res.status(403).json({ message: "Access denied" });
+      const license = await storage.getLicenseKey(licenseId);
+      if (!license || license.applicationId !== applicationId) return res.status(404).json({ message: "License key not found" });
+      const updated = await storage.updateLicenseKey(licenseId, { isBanned: false, isActive: true });
+      res.json(updated);
+    } catch (err) {
+      console.error('Error unbanning license:', err);
+      res.status(500).json({ message: 'Failed to unban license' });
+    }
+  });
+
+  // Extend a license key (add days)
+  app.post('/api/applications/:id/licenses/:licenseId/extend', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.id);
+      const licenseId = parseInt(req.params.licenseId);
+      const { days } = req.body;
+      if (!days || typeof days !== 'number' || days <= 0) return res.status(400).json({ message: 'days must be a positive number' });
+      const application = await storage.getApplication(applicationId);
+      if (!application) return res.status(404).json({ message: "Application not found" });
+      if (application.userId !== req.user.claims.sub) return res.status(403).json({ message: "Access denied" });
+      const license = await storage.getLicenseKey(licenseId);
+      if (!license || license.applicationId !== applicationId) return res.status(404).json({ message: "License key not found" });
+      const newExpiry = new Date(license.expiresAt);
+      newExpiry.setDate(newExpiry.getDate() + days);
+      const updated = await storage.updateLicenseKey(licenseId, { expiresAt: newExpiry.toISOString() });
+      res.json(updated);
+    } catch (err) {
+      console.error('Error extending license:', err);
+      res.status(500).json({ message: 'Failed to extend license' });
+    }
+  });
+
   app.get('/api/applications/:id/users', isAuthenticated, async (req: any, res) => {
     try {
       const applicationId = parseInt(req.params.id);

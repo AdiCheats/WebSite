@@ -103,17 +103,25 @@ export default function AppManagement() {
     username: "",
     password: "",
     expiresAt: "",
+    // ISO string to send to backend (computed using IST)
+    expiresAtIso: "",
     hwid: "",
     hwidLock: "false",
   });
 
-  const [createLicenseData, setCreateLicenseData] = useState<{ licenseKey?: string; maxUsers: number; validityDays: number; description?: string; isActive: boolean }>({
+  const [createLicenseData, setCreateLicenseData] = useState<{ licenseKey?: string; maxUsers: number; validityDays: number; description?: string; isActive: boolean; hwidLock?: 'true' | 'false' | 'custom'; hwid?: string }>({
     licenseKey: "",
     maxUsers: 1,
     validityDays: 30,
     description: "",
     isActive: true,
+    hwidLock: 'false',
+    hwid: "",
   });
+
+  // License prefix customization
+  const [licensePrefix, setLicensePrefix] = useState<string>("");
+  const [licensePrefixInput, setLicensePrefixInput] = useState<string>("");
 
   // Webhooks state
   const [newWebhook, setNewWebhook] = useState<{ url: string; events: string[]; isActive: boolean; secret?: string }>({
@@ -286,6 +294,7 @@ export default function AppManagement() {
         username: "",
         password: "",
         expiresAt: "",
+        expiresAtIso: "",
         hwid: "",
         hwidLock: application?.hwidLockEnabled ? "true" : "false"
       });
@@ -305,7 +314,7 @@ export default function AppManagement() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
       setIsCreateLicenseDialogOpen(false);
-      setCreateLicenseData({ licenseKey: "", maxUsers: 1, validityDays: 30, description: "", isActive: true });
+      setCreateLicenseData({ licenseKey: "", maxUsers: 1, validityDays: 30, description: "", isActive: true, hwidLock: 'false', hwid: "" });
       toast({ title: "License created successfully" });
     },
     onError: (error: any) => {
@@ -413,12 +422,80 @@ export default function AppManagement() {
     }
   });
 
+  const pauseLicenseMutation = useMutation({
+    mutationFn: (licenseId: number) =>
+      apiRequest(`/api/applications/${appId}/licenses/${licenseId}/pause`, { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
+      toast({ title: "License paused" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to pause", description: error?.message || 'Unknown error', variant: 'destructive' });
+    }
+  });
+
+  const resumeLicenseMutation = useMutation({
+    mutationFn: (licenseId: number) =>
+      apiRequest(`/api/applications/${appId}/licenses/${licenseId}/resume`, { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
+      toast({ title: "License resumed" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to resume", description: error?.message || 'Unknown error', variant: 'destructive' });
+    }
+  });
+
+  const banLicenseMutation = useMutation({
+    mutationFn: (licenseId: number) =>
+      apiRequest(`/api/applications/${appId}/licenses/${licenseId}/ban`, { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
+      toast({ title: "License banned" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to ban", description: error?.message || 'Unknown error', variant: 'destructive' });
+    }
+  });
+
+  const unbanLicenseMutation = useMutation({
+    mutationFn: (licenseId: number) =>
+      apiRequest(`/api/applications/${appId}/licenses/${licenseId}/unban`, { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
+      toast({ title: "License unbanned" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to unban", description: error?.message || 'Unknown error', variant: 'destructive' });
+    }
+  });
+
+  const extendLicenseMutation = useMutation({
+    mutationFn: ({ licenseId, days }: { licenseId: number; days: number }) =>
+      apiRequest(`/api/applications/${appId}/licenses/${licenseId}/extend`, { method: 'POST', body: { days } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
+      toast({ title: "License extended" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to extend", description: error?.message || 'Unknown error', variant: 'destructive' });
+    }
+  });
+
   useEffect(() => {
     if (application) {
       setEditAppData(application);
-      if (application.hwidLockEnabled) {
-        setCreateUserData(prev => ({ ...prev, hwidLock: "true" }));
-      }
+      // Default HWID lock selections based on application settings
+      setCreateUserData(prev => ({ ...prev, hwidLock: application.hwidLockEnabled ? "true" : "false" }));
+      setCreateLicenseData(prev => ({ ...prev, hwidLock: application.hwidLockEnabled ? 'true' : 'false' }));
+      // Initialize license prefix from storage or application name on load
+      const stored = (getSavedPrefix(application.id) || '').trim();
+      const appNameDefault = application.name || 'APP';
+      const initialPrefix = stored || appNameDefault;
+      setLicensePrefix(prev => prev || initialPrefix);
+      // if stored equals app name, leave input empty so placeholder shows
+      const inputValue = (stored && stored !== appNameDefault) ? stored : "";
+      setLicensePrefixInput(prev => prev || inputValue);
     }
   }, [application]);
 
@@ -435,6 +512,44 @@ export default function AppManagement() {
     } catch (err) {
       toast({ title: "Failed to copy", variant: "destructive" });
     }
+  };
+
+  // Generate a license key: ApplicationName-XXXXXX-XXXXXX-XXXXXX
+  const generateLicenseKeyForPrefix = (prefix: string) => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const segment = () => Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const appName = prefix || 'APP';
+    return `${appName}-${segment()}-${segment()}-${segment()}`;
+  };
+
+  const generateLicenseKey = () => {
+    const basePrefix = (licensePrefix && licensePrefix.trim()) || application?.name || 'APP';
+    return generateLicenseKeyForPrefix(basePrefix);
+  };
+
+  const getSavedPrefix = (appIdVal?: number) => {
+    try {
+      const key = `licensePrefix:${appIdVal || appId}`;
+      return localStorage.getItem(key) || '';
+    } catch (e) {
+      return '';
+    }
+  };
+
+  const savePrefix = (prefix: string, appIdVal?: number) => {
+    try {
+      const key = `licensePrefix:${appIdVal || appId}`;
+      localStorage.setItem(key, prefix);
+    } catch (e) {
+      // ignore storage errors
+    }
+  };
+
+  // Mask license key for display without revealing actual value
+  const getMaskedLicenseKey = () => {
+    const raw = createLicenseData.licenseKey || '';
+    const prefix = raw.includes('-') ? raw.split('-')[0] : ((licensePrefix && licensePrefix.trim()) || application?.name || 'APP');
+    return `${prefix}-XXXXXX-XXXXXX-XXXXXX`;
   };
 
   const handleUpdateApp = () => {
@@ -487,12 +602,21 @@ export default function AppManagement() {
     const userData: any = {
       username: createUserData.username.trim(),
       password: createUserData.password,
-      expiresAt: createUserData.expiresAt?.trim() ? new Date(createUserData.expiresAt).toISOString() : undefined,
+      expiresAt: createUserData.expiresAtIso?.trim()
+        ? createUserData.expiresAtIso
+        : (createUserData.expiresAt?.trim() ? new Date(createUserData.expiresAt).toISOString() : undefined),
     };
     
-    // Include HWID based on lock state
+    // Include HWID based on lock selection
     if (createUserData.hwidLock === "true") {
-      userData.hwid = ""; // indicates locked without value yet
+      userData.hwid = ""; // lock enabled, let first login set HWID
+    } else if (createUserData.hwidLock === "custom") {
+      const trimmedHwid = (createUserData.hwid || "").trim();
+      if (!trimmedHwid) {
+        toast({ title: "HWID required", description: "Enter an HWID or choose a different option.", variant: "destructive" });
+        return;
+      }
+      userData.hwid = trimmedHwid;
     }
     
     // Never send client-only field
@@ -948,11 +1072,22 @@ export default function AppManagement() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                onClick={() => {
-                                  const date = new Date();
-                                  date.setDate(date.getDate() + 7);
-                                  setCreateUserData(prev => ({ ...prev, expiresAt: date.toISOString().slice(0, 16) }));
-                                }}
+                            onClick={() => {
+                              // Compute IST now + 7 days
+                              const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+                              const nowUtcMs = Date.now();
+                              const istNow = new Date(nowUtcMs + IST_OFFSET_MS);
+                              const targetIst = new Date(istNow.getTime());
+                              targetIst.setDate(targetIst.getDate() + 7);
+                              const targetUtc = new Date(targetIst.getTime() - IST_OFFSET_MS);
+                              const y = targetUtc.getFullYear();
+                              const m = String(targetUtc.getMonth() + 1).padStart(2, '0');
+                              const d = String(targetUtc.getDate()).padStart(2, '0');
+                              const hh = String(targetUtc.getHours()).padStart(2, '0');
+                              const mm = String(targetUtc.getMinutes()).padStart(2, '0');
+                              const localInput = `${y}-${m}-${d}T${hh}:${mm}`;
+                              setCreateUserData(prev => ({ ...prev, expiresAt: localInput, expiresAtIso: targetUtc.toISOString() }));
+                            }}
                               >
                                 7 Days
                               </Button>
@@ -960,11 +1095,21 @@ export default function AppManagement() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                onClick={() => {
-                                  const date = new Date();
-                                  date.setDate(date.getDate() + 30);
-                                  setCreateUserData(prev => ({ ...prev, expiresAt: date.toISOString().slice(0, 16) }));
-                                }}
+                            onClick={() => {
+                              const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+                              const nowUtcMs = Date.now();
+                              const istNow = new Date(nowUtcMs + IST_OFFSET_MS);
+                              const targetIst = new Date(istNow.getTime());
+                              targetIst.setDate(targetIst.getDate() + 30);
+                              const targetUtc = new Date(targetIst.getTime() - IST_OFFSET_MS);
+                              const y = targetUtc.getFullYear();
+                              const m = String(targetUtc.getMonth() + 1).padStart(2, '0');
+                              const d = String(targetUtc.getDate()).padStart(2, '0');
+                              const hh = String(targetUtc.getHours()).padStart(2, '0');
+                              const mm = String(targetUtc.getMinutes()).padStart(2, '0');
+                              const localInput = `${y}-${m}-${d}T${hh}:${mm}`;
+                              setCreateUserData(prev => ({ ...prev, expiresAt: localInput, expiresAtIso: targetUtc.toISOString() }));
+                            }}
                               >
                                 30 Days
                               </Button>
@@ -972,11 +1117,21 @@ export default function AppManagement() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                onClick={() => {
-                                  const date = new Date();
-                                  date.setFullYear(date.getFullYear() + 1);
-                                  setCreateUserData(prev => ({ ...prev, expiresAt: date.toISOString().slice(0, 16) }));
-                                }}
+                            onClick={() => {
+                              const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+                              const nowUtcMs = Date.now();
+                              const istNow = new Date(nowUtcMs + IST_OFFSET_MS);
+                              const targetIst = new Date(istNow.getTime());
+                              targetIst.setFullYear(targetIst.getFullYear() + 1);
+                              const targetUtc = new Date(targetIst.getTime() - IST_OFFSET_MS);
+                              const y = targetUtc.getFullYear();
+                              const m = String(targetUtc.getMonth() + 1).padStart(2, '0');
+                              const d = String(targetUtc.getDate()).padStart(2, '0');
+                              const hh = String(targetUtc.getHours()).padStart(2, '0');
+                              const mm = String(targetUtc.getMinutes()).padStart(2, '0');
+                              const localInput = `${y}-${m}-${d}T${hh}:${mm}`;
+                              setCreateUserData(prev => ({ ...prev, expiresAt: localInput, expiresAtIso: targetUtc.toISOString() }));
+                            }}
                               >
                                 1 Year
                               </Button>
@@ -984,9 +1139,19 @@ export default function AppManagement() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                onClick={() => {
-                                  setCreateUserData(prev => ({ ...prev, expiresAt: "9999-12-31T23:59" }));
-                                }}
+                            onClick={() => {
+                              // Never: set to far-future max (2099-12-31 23:59:59 IST)
+                              const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+                              const targetUtcMs = Date.UTC(2099, 11, 31, 23, 59, 59) - IST_OFFSET_MS; // convert IST -> UTC
+                              const targetUtc = new Date(targetUtcMs);
+                              const y = targetUtc.getFullYear();
+                              const m = String(targetUtc.getMonth() + 1).padStart(2, '0');
+                              const d = String(targetUtc.getDate()).padStart(2, '0');
+                              const hh = String(targetUtc.getHours()).padStart(2, '0');
+                              const mm = String(targetUtc.getMinutes()).padStart(2, '0');
+                              const localInput = `${y}-${m}-${d}T${hh}:${mm}`;
+                              setCreateUserData(prev => ({ ...prev, expiresAt: localInput, expiresAtIso: targetUtc.toISOString() }));
+                            }}
                               >
                                 Never
                               </Button>
@@ -994,8 +1159,32 @@ export default function AppManagement() {
                             <Input
                               type="datetime-local"
                               value={createUserData.expiresAt}
-                              onChange={(e) => setCreateUserData(prev => ({ ...prev, expiresAt: e.target.value }))}
+                          onChange={(e) => setCreateUserData(prev => ({ ...prev, expiresAt: e.target.value, expiresAtIso: e.target.value ? new Date(e.target.value).toISOString() : '' }))}
                             />
+                          </div>
+                        </div>
+                        <div>
+                          <Label>HWID Lock</Label>
+                          <div className="mt-2 space-y-2">
+                            <Select value={createUserData.hwidLock} onValueChange={(v) => setCreateUserData(prev => ({ ...prev, hwidLock: v }))}>
+                              <SelectTrigger><SelectValue placeholder="Select option" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="true">True</SelectItem>
+                                <SelectItem value="false">False</SelectItem>
+                                <SelectItem value="custom">Custom</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {createUserData.hwidLock === 'custom' && (
+                              <div>
+                                <Label className="text-xs">Custom HWID</Label>
+                                <Input
+                                  className="mt-2"
+                                  value={createUserData.hwid}
+                                  onChange={(e) => setCreateUserData(prev => ({ ...prev, hwid: e.target.value }))}
+                                  placeholder="Enter HWID"
+                                />
+                              </div>
+                            )}
                           </div>
                         </div>
                       <DialogFooter>
@@ -1214,7 +1403,24 @@ export default function AppManagement() {
                     <h2 className="text-2xl font-bold">License Keys</h2>
                     <p className="text-sm text-muted-foreground">Manage license keys for user registration</p>
                   </div>
-                  <Dialog open={isCreateLicenseDialogOpen} onOpenChange={setIsCreateLicenseDialogOpen}>
+                  <Dialog
+                    open={isCreateLicenseDialogOpen}
+                    onOpenChange={(open) => {
+                      setIsCreateLicenseDialogOpen(open);
+                      if (open) {
+                        const currentKey = (createLicenseData.licenseKey || '').trim();
+                        let effectivePrefix = (licensePrefix && licensePrefix.trim()) || application?.name || 'APP';
+                        if (currentKey.includes('-')) {
+                          effectivePrefix = currentKey.split('-')[0];
+                        }
+                        setLicensePrefix(effectivePrefix);
+                        setLicensePrefixInput(effectivePrefix);
+                        if (!currentKey) {
+                          setCreateLicenseData(prev => ({ ...prev, licenseKey: generateLicenseKeyForPrefix(effectivePrefix) }));
+                        }
+                      }
+                    }}
+                  >
                     <DialogTrigger asChild>
                       <Button>
                         <Plus className="h-4 w-4 mr-2" />
@@ -1228,36 +1434,98 @@ export default function AppManagement() {
                       </DialogHeader>
                       <div className="grid gap-4 py-4">
                         <div>
-                          <Label>License Key</Label>
-                          <div className="flex gap-2 mt-2">
+                          <Label>License Prefix</Label>
+                          <div className="mt-2 flex gap-2">
                             <Input
-                              value={createLicenseData.licenseKey || ""}
-                              onChange={(e) => setCreateLicenseData(prev => ({ ...prev, licenseKey: e.target.value }))}
-                              placeholder="Leave blank or generate"
+                              value={licensePrefixInput}
+                              onChange={(e) => setLicensePrefixInput(e.target.value)}
+                              placeholder={application?.name || 'Application Name'}
                             />
-                            <Button type="button" variant="outline" onClick={() => generateLicenseMutation.mutate()} disabled={generateLicenseMutation.isPending}>
-                              {generateLicenseMutation.isPending ? 'Generating…' : 'Generate'}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => {
+                                const defaultPrefix = application?.name || 'APP';
+                                setLicensePrefixInput("");
+                                setLicensePrefix(defaultPrefix);
+                                savePrefix(defaultPrefix, application.id);
+                                // Update existing key to use default prefix (keep segments if present)
+                                const current = createLicenseData.licenseKey || '';
+                                const parts = current.split('-');
+                                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                                const segment = () => Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+                                const rest = parts.length >= 4 ? parts.slice(1).join('-') : `${segment()}-${segment()}-${segment()}`;
+                                const updated = `${defaultPrefix}-${rest}`;
+                                setCreateLicenseData(prev => ({ ...prev, licenseKey: updated }));
+                                toast({ title: "Prefix reset", description: `Using application name '${defaultPrefix}' as prefix.` });
+                              }}
+                            >
+                              Set Default
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => {
+                                const newPrefix = (licensePrefixInput || '').trim() || (application?.name || 'APP');
+                                setLicensePrefix(newPrefix);
+                                savePrefix(newPrefix, application.id);
+                                // Update existing key to use new prefix (keep segments if present)
+                                const current = createLicenseData.licenseKey || '';
+                                const parts = current.split('-');
+                                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                                const segment = () => Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+                                const rest = parts.length >= 4 ? parts.slice(1).join('-') : `${segment()}-${segment()}-${segment()}`;
+                                const updated = `${newPrefix}-${rest}`;
+                                setCreateLicenseData(prev => ({ ...prev, licenseKey: updated }));
+                                toast({ title: "Prefix saved", description: `Using '${newPrefix}' as key prefix.` });
+                              }}
+                            >
+                              Save
                             </Button>
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label>Max Users</Label>
+                        <div>
+                          <Label>License Key</Label>
+                          <div className="mt-2">
                             <Input
-                              type="number"
-                              value={createLicenseData.maxUsers}
-                              onChange={(e) => setCreateLicenseData(prev => ({ ...prev, maxUsers: Math.max(1, Number(e.target.value || 1)) }))}
-                              min={1}
+                              value={getMaskedLicenseKey()}
+                              readOnly
+                              placeholder={`${application?.name || 'APP'}-******-******-******`}
                             />
+                            <p className="text-xs text-muted-foreground mt-1">The full key will be stored securely and used on submit.</p>
                           </div>
-                          <div>
-                            <Label>Validity Days</Label>
-                            <Input
-                              type="number"
-                              value={createLicenseData.validityDays}
-                              onChange={(e) => setCreateLicenseData(prev => ({ ...prev, validityDays: Math.max(1, Number(e.target.value || 1)) }))}
-                              min={1}
-                            />
+                        </div>
+                        <div>
+                          <Label>Validity Days</Label>
+                          <Input
+                            type="number"
+                            value={createLicenseData.validityDays}
+                            onChange={(e) => setCreateLicenseData(prev => ({ ...prev, validityDays: Math.max(1, Number(e.target.value || 1)) }))}
+                            min={1}
+                          />
+                        </div>
+                        <div>
+                          <Label>HWID Lock</Label>
+                          <div className="mt-2 space-y-2">
+                            <Select value={createLicenseData.hwidLock} onValueChange={(v) => setCreateLicenseData(prev => ({ ...prev, hwidLock: v as any }))}>
+                              <SelectTrigger><SelectValue placeholder="Select option" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="true">True</SelectItem>
+                                <SelectItem value="false">False</SelectItem>
+                                <SelectItem value="custom">Custom</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {createLicenseData.hwidLock === 'custom' && (
+                              <div>
+                                <Label className="text-xs">Custom HWID</Label>
+                                <Input
+                                  className="mt-2"
+                                  value={createLicenseData.hwid}
+                                  onChange={(e) => setCreateLicenseData(prev => ({ ...prev, hwid: e.target.value }))}
+                                  placeholder="Enter HWID"
+                                />
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div>
@@ -1268,23 +1536,24 @@ export default function AppManagement() {
                             placeholder="Optional"
                           />
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <Switch
-                            checked={createLicenseData.isActive}
-                            onCheckedChange={(checked) => setCreateLicenseData(prev => ({ ...prev, isActive: checked }))}
-                          />
-                          <Label>Active</Label>
-                        </div>
                       </div>
                       <DialogFooter>
                         <Button variant="outline" onClick={() => setIsCreateLicenseDialogOpen(false)}>Cancel</Button>
-                        <Button onClick={() => createLicenseMutation.mutate({
-                          licenseKey: createLicenseData.licenseKey?.trim() ? createLicenseData.licenseKey : undefined,
-                          maxUsers: createLicenseData.maxUsers,
-                          validityDays: createLicenseData.validityDays,
-                          description: createLicenseData.description?.trim() ? createLicenseData.description : undefined,
-                          isActive: createLicenseData.isActive,
-                        })} disabled={createLicenseMutation.isPending}>
+                        <Button onClick={() => {
+                          const payload: any = {
+                            licenseKey: createLicenseData.licenseKey?.trim() ? createLicenseData.licenseKey : undefined,
+                            maxUsers: createLicenseData.maxUsers,
+                            validityDays: createLicenseData.validityDays,
+                            description: createLicenseData.description?.trim() ? createLicenseData.description : undefined,
+                            isActive: createLicenseData.isActive,
+                          };
+                          if (createLicenseData.hwidLock === 'true') {
+                            payload.hwid = "";
+                          } else if (createLicenseData.hwidLock === 'custom') {
+                            payload.hwid = (createLicenseData.hwid || '').trim();
+                          }
+                          createLicenseMutation.mutate(payload);
+                        }} disabled={createLicenseMutation.isPending}>
                           {createLicenseMutation.isPending ? 'Creating…' : 'Create License'}
                         </Button>
                       </DialogFooter>
@@ -1309,33 +1578,33 @@ export default function AppManagement() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>License Key</TableHead>
-                            <TableHead>Users</TableHead>
                             <TableHead>Validity</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Expires</TableHead>
                             <TableHead>Created</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {licenseKeys.map((license) => (
                             <TableRow key={license.id} className="hover:bg-muted/50">
                               <TableCell>
-                                <code className="text-xs bg-muted px-2 py-1 rounded">
-                                  {license.licenseKey.substring(0, 16)}...
+                                <code className="text-xs bg-muted px-2 py-1 rounded break-all whitespace-pre-wrap">
+                                  {license.licenseKey}
                                 </code>
                               </TableCell>
-                              <TableCell>
-                                <span className="text-sm">
-                                  {license.currentUsers} / {license.maxUsers}
-                                </span>
-                              </TableCell>
+                              
                               <TableCell>
                                 <span className="text-sm">{license.validityDays} days</span>
                               </TableCell>
                               <TableCell>
-                                <Badge variant={license.isActive && new Date(license.expiresAt) > new Date() ? "default" : "secondary"}>
-                                  {license.isActive && new Date(license.expiresAt) > new Date() ? "Active" : "Inactive"}
-                                </Badge>
+                                { (license as any).isBanned ? (
+                                  <Badge variant="destructive">Banned</Badge>
+                                ) : license.isActive ? (
+                                  <Badge>Active</Badge>
+                                ) : (
+                                  <Badge variant="secondary">Paused</Badge>
+                                ) }
                               </TableCell>
                               <TableCell>
                                 <span className="text-sm">
@@ -1348,25 +1617,55 @@ export default function AppManagement() {
                                 </span>
                               </TableCell>
                               <TableCell className="text-right">
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button variant="ghost" size="sm" className="text-red-600">Delete</Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Delete License</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        This will permanently remove the license key.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                      <AlertDialogAction onClick={() => deleteLicenseMutation.mutate(license.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                        Delete
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="sm">
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => {
+                                      const days = Number(prompt('Extend by how many days?'));
+                                      if (Number.isFinite(days) && days > 0) extendLicenseMutation.mutate({ licenseId: license.id, days });
+                                    }}>
+                                      <Plus className="h-4 w-4 mr-2" />
+                                      Extend
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => (license.isActive ? pauseLicenseMutation.mutate(license.id) : resumeLicenseMutation.mutate(license.id))}>
+                                      {license.isActive ? (
+                                        <><Pause className="h-4 w-4 mr-2" />Pause</>
+                                      ) : (
+                                        <><Play className="h-4 w-4 mr-2" />Resume</>
+                                      )}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => (license as any).isBanned ? unbanLicenseMutation.mutate(license.id) : banLicenseMutation.mutate(license.id)}>
+                                      <Ban className="h-4 w-4 mr-2" />
+                                      {(license as any).isBanned ? 'Unban' : 'Ban'}
+                                    </DropdownMenuItem>
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-600">
+                                          <Trash2 className="h-4 w-4 mr-2" />
+                                          Delete
+                                        </DropdownMenuItem>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Delete License</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            This will permanently remove the license key.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction onClick={() => deleteLicenseMutation.mutate(license.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                            Delete
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </TableCell>
                             </TableRow>
                           ))}

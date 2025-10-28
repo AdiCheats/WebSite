@@ -10,6 +10,10 @@ validateRequiredEnvVars();
 
 const app = express();
 
+// Trust reverse proxy in production so secure cookies work (Heroku, Render, Nginx, etc.)
+if (config.isProduction) {
+  app.set('trust proxy', 1);
+}
 // Global server compatibility settings
 app.use((req, res, next) => {
   // CORS headers for global access
@@ -41,8 +45,9 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false, // Set to true in production with HTTPS
+    secure: config.isProduction, // true in production with HTTPS
     httpOnly: true,
+    sameSite: config.isProduction ? 'lax' : 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 }));

@@ -35,6 +35,11 @@ export async function apiRequest(
   });
 
   await throwIfResNotOk(res);
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || 'Non-JSON response from server');
+  }
   return res.json();
 }
 

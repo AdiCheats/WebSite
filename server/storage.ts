@@ -149,8 +149,8 @@ class GitHubStorage implements IStorage {
   }
 
   async updateLicenseKey(id: number, updates: any): Promise<LicenseKey | undefined> {
-    // Note: GitHub service doesn't have updateLicenseKey, but we can implement it if needed
-    throw new Error("updateLicenseKey not implemented in GitHub service");
+    const updated = await (githubService as any).updateLicenseStatus(id, updates);
+    return updated || undefined;
   }
 
   async deleteLicenseKey(id: number): Promise<boolean> {

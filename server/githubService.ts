@@ -71,6 +71,7 @@ export interface LicenseKey {
   expiresAt: Date;
   description: string | null;
   isActive: boolean;
+  isBanned: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -949,6 +950,7 @@ class GitHubService {
       expiresAt: new Date(Date.now() + (licenseData.validityDays || 30) * 24 * 60 * 60 * 1000),
       description: licenseData.description || null,
       isActive: licenseData.isActive ?? true,
+      isBanned: false,
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -979,6 +981,20 @@ class GitHubService {
 
     const success = await this.updateGitHubFile(data, sha, `Delete license key: ${licenseId}`);
     return success;
+  }
+
+  async updateLicenseStatus(licenseId: number, updates: Partial<Pick<LicenseKey, 'isActive' | 'isBanned' | 'expiresAt' | 'validityDays'>>): Promise<LicenseKey | null> {
+    const { data, sha } = await this.getGitHubFile();
+    const index = (data.licenseKeys || []).findIndex((l: any) => l.id === licenseId);
+    if (index === -1) return null;
+    const target = (data.licenseKeys || [])[index];
+    if (updates.isActive !== undefined) target.isActive = updates.isActive;
+    if (updates.isBanned !== undefined) target.isBanned = updates.isBanned;
+    if (updates.validityDays !== undefined) target.validityDays = updates.validityDays;
+    if (updates.expiresAt !== undefined) target.expiresAt = new Date(updates.expiresAt as any);
+    target.updatedAt = new Date();
+    const success = await this.updateGitHubFile(data, sha, `Update license ${licenseId}`);
+    return success ? target : null;
   }
 
   async validateLicenseKey(licenseKey: string, applicationId: number): Promise<LicenseKey | null> {
