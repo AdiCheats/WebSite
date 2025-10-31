@@ -15,7 +15,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Settings, ArrowLeft, Users, Activity, Eye, EyeOff, MoreHorizontal, Trash2, Pause, Play, Key, Shield, Plus, UserPlus, Edit, UserCheck, UserX, Code, MessageSquare, Info, BarChart3, CheckCircle2, XCircle, Ban } from "lucide-react";
+import { Copy, Settings, ArrowLeft, Users, Activity, Eye, EyeOff, MoreHorizontal, Trash2, Pause, Play, Key, Shield, ShieldOff, Plus, UserPlus, Edit, UserCheck, UserX, Code, MessageSquare, Info, BarChart3, CheckCircle2, XCircle, Ban } from "lucide-react";
 import Header from "@/components/header";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
@@ -46,6 +46,7 @@ interface AppUser {
   isPaused: boolean;
   isBanned?: boolean;
   hwid?: string;
+  hwidLockEnabled?: boolean;  // Per-user HWID lock setting
   ip?: string;
   expiresAt?: string;
   createdAt: string;
@@ -609,6 +610,7 @@ export default function AppManagement() {
     
     // Include HWID based on lock selection
     if (createUserData.hwidLock === "true") {
+      userData.hwidLockEnabled = true;  // ✅ HWID lock enabled
       userData.hwid = ""; // lock enabled, let first login set HWID
     } else if (createUserData.hwidLock === "custom") {
       const trimmedHwid = (createUserData.hwid || "").trim();
@@ -616,12 +618,18 @@ export default function AppManagement() {
         toast({ title: "HWID required", description: "Enter an HWID or choose a different option.", variant: "destructive" });
         return;
       }
+      userData.hwidLockEnabled = true;  // ✅ HWID lock enabled (custom HWID)
       userData.hwid = trimmedHwid;
+    } else {
+      // hwidLock === "false"
+      userData.hwidLockEnabled = false;  // ✅ HWID lock explicitly disabled
+      // Don't include hwid field at all (will be handled by backend as undefined)
     }
     
     // Never send client-only field
     delete (userData as any).hwidLock;
 
+    console.log('Creating user with payload:', userData);
     createUserMutation.mutate(userData);
   };
 
@@ -1239,7 +1247,12 @@ export default function AppManagement() {
                               </div>
                               </TableCell>
                               <TableCell>
-                                {user.hwid ? (
+                                {user.hwidLockEnabled === false ? (
+                                  <Badge variant="secondary" className="text-xs">
+                                    <ShieldOff className="h-3 w-3 mr-1" />
+                                    HWID Not Locked
+                                  </Badge>
+                                ) : user.hwid ? (
                                   <code className="text-xs bg-muted px-2 py-1 rounded break-all">
                                     {user.hwid}
                                   </code>
@@ -1278,7 +1291,7 @@ export default function AppManagement() {
                                         <><Pause className="h-4 w-4 mr-2" />Pause</>
                                   )}
                                 </DropdownMenuItem>
-                                    {user.hwid && (
+                                    {user.hwid && user.hwidLockEnabled !== false && (
                                   <DropdownMenuItem onClick={() => resetHwidMutation.mutate(user.id)}>
                                         <img
                                           src="/logo.svg"

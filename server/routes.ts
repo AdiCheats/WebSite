@@ -26,10 +26,10 @@ const insertApplicationSchema = z.object({
 const insertAppUserSchema = z.object({
   username: z.string().min(1),
   password: z.string().min(1),
-  hwid: z.string().optional().or(z.literal("")),
+  hwid: z.string().optional().or(z.literal("")).nullable(),
   hwidLockEnabled: z.boolean().optional(),  // Per-user HWID lock setting
-  licenseKey: z.string().optional().or(z.literal("")),
-  expiresAt: z.string().optional().or(z.literal("")),
+  licenseKey: z.string().optional().or(z.literal("")).nullable(),
+  expiresAt: z.string().optional().or(z.literal("")).nullable(),
   isActive: z.boolean().optional(),
   isPaused: z.boolean().optional(),
 });
@@ -1482,6 +1482,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // If user has HWID lock enabled, enforce it regardless of application setting
       const userHasHwidLock = user.hwidLockEnabled ?? false;  // User-level HWID lock setting
       const shouldEnforceHwidLock = userHasHwidLock;  // User setting is the deciding factor
+      
+      // IMPORTANT: If HWID lock is disabled, ensure HWID is cleared (safety check)
+      if (!shouldEnforceHwidLock && user.hwid) {
+        // User has hwidLockEnabled = false but somehow has a saved HWID - clear it
+        await storage.updateAppUser(user.id, { hwid: null });
+      }
       
       if (shouldEnforceHwidLock) {
         if (!hwid) {
