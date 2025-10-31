@@ -55,7 +55,6 @@ export interface IStorage {
   resetAppUserHwid(id: number): Promise<boolean>;
   banAppUser(id: number): Promise<boolean>;
   unbanAppUser(id: number): Promise<boolean>;
-  updateAppUser(id: number, userData: any): Promise<boolean>;
   validatePassword(password: string, hashedPassword: string): Promise<boolean>;
   
   // Webhook methods
@@ -187,7 +186,11 @@ class GitHubStorage implements IStorage {
   }
 
   async updateAppUser(id: number, updates: any): Promise<AppUser | undefined> {
-    return await githubService.updateAppUser(id, updates) || undefined;
+    const success = await githubService.updateAppUser(id, updates);
+    if (success) {
+      return await githubService.getAppUser(id) || undefined;
+    }
+    return undefined;
   }
 
   async deleteAppUser(id: number): Promise<boolean> {

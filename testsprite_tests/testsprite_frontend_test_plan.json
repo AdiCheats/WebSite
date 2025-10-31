@@ -1,0 +1,680 @@
+[
+  {
+    "id": "TC001",
+    "title": "Admin Authentication Success",
+    "description": "Verify that admin users can successfully log in using the Firebase-replaced simple login system with correct credentials.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the admin login page."
+      },
+      {
+        "type": "action",
+        "description": "Enter valid admin username and password."
+      },
+      {
+        "type": "action",
+        "description": "Submit login form."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login is successful and admin is redirected to the dashboard."
+      }
+    ]
+  },
+  {
+    "id": "TC002",
+    "title": "Admin Authentication Failure",
+    "description": "Verify that admin login fails with incorrect credentials.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the admin login page."
+      },
+      {
+        "type": "action",
+        "description": "Enter invalid admin username or password."
+      },
+      {
+        "type": "action",
+        "description": "Submit login form."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login is denied with appropriate error message."
+      }
+    ]
+  },
+  {
+    "id": "TC003",
+    "title": "Create New Application",
+    "description": "Verify admin can create a new application including all required fields like name, description, version, and HWID lock setting.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Log in as admin and navigate to application management."
+      },
+      {
+        "type": "action",
+        "description": "Click to create a new application."
+      },
+      {
+        "type": "action",
+        "description": "Fill in valid name, description, version, and set HWID lock enabled or disabled."
+      },
+      {
+        "type": "action",
+        "description": "Submit the application creation form."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the application is successfully created and listed."
+      }
+    ]
+  },
+  {
+    "id": "TC004",
+    "title": "Update Application Settings",
+    "description": "Verify admin can update application details including version and HWID lock settings.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Log in as admin and open existing application details."
+      },
+      {
+        "type": "action",
+        "description": "Change application version and toggle HWID lock setting."
+      },
+      {
+        "type": "action",
+        "description": "Submit the update."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify application updates are correctly saved and shown."
+      }
+    ]
+  },
+  {
+    "id": "TC005",
+    "title": "Delete Application",
+    "description": "Verify admin can delete an application and it is removed from the system.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Log in as admin and select an application."
+      },
+      {
+        "type": "action",
+        "description": "Click delete and confirm deletion."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify application is no longer listed and data is removed."
+      }
+    ]
+  },
+  {
+    "id": "TC006",
+    "title": "Create New App User with HWID Lock",
+    "description": "Verify the ability to create a new end user with a username, password, optional HWID, expiration, and HWID lock enabled true.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "As admin, navigate to users management for a specific application."
+      },
+      {
+        "type": "action",
+        "description": "Create a new user with username, password, valid HWID, and HWID lock enabled."
+      },
+      {
+        "type": "action",
+        "description": "Set an optional expiration date."
+      },
+      {
+        "type": "action",
+        "description": "Submit the new user creation."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user is created with correct properties and visible in user list."
+      }
+    ]
+  },
+  {
+    "id": "TC007",
+    "title": "Pause and Unpause User Account",
+    "description": "Verify admin can pause and unpause users and the status changes appropriately.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Select an active user."
+      },
+      {
+        "type": "action",
+        "description": "Initiate pause user action."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user status changes to paused."
+      },
+      {
+        "type": "action",
+        "description": "Initiate unpause user action."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user status changes back to active."
+      }
+    ]
+  },
+  {
+    "id": "TC008",
+    "title": "Ban and Unban User Account",
+    "description": "Verify admin can ban and unban users with correct system response.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Select a user."
+      },
+      {
+        "type": "action",
+        "description": "Ban the user."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user status is marked as banned and access is prevented."
+      },
+      {
+        "type": "action",
+        "description": "Unban the user."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user status returns to allowed state."
+      }
+    ]
+  },
+  {
+    "id": "TC009",
+    "title": "Reset User HWID",
+    "description": "Verify admin can reset a user's hardware ID and the user can then re-register a new HWID.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Select a user with HWID locked account."
+      },
+      {
+        "type": "action",
+        "description": "Perform HWID reset action."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm HWID is cleared and user can update with new HWID on next login."
+      }
+    ]
+  },
+  {
+    "id": "TC010",
+    "title": "User Login Success with Valid Credentials and HWID",
+    "description": "Verify a registered end-user can successfully log in with username, password, correct HWID, API key, and supported version.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send login request via API with valid username, password, API key, correct HWID, and supported application version."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response status 200 and login success message with correct user details."
+      }
+    ]
+  },
+  {
+    "id": "TC011",
+    "title": "User Login Failure due to Incorrect Password",
+    "description": "Verify login fails with HTTP 401 and error message when password is incorrect.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send login request via API with valid username, incorrect password, API key, HWID, and version."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response status 401 with invalid credentials message."
+      }
+    ]
+  },
+  {
+    "id": "TC012",
+    "title": "User Login Failure due to Blacklisted IP",
+    "description": "Verify login is denied when the client IP is blacklisted for the application.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Add client IP to blacklist for the application."
+      },
+      {
+        "type": "action",
+        "description": "Attempt login with valid credentials from blacklisted IP."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access is blocked with appropriate blacklist response."
+      }
+    ]
+  },
+  {
+    "id": "TC013",
+    "title": "User Login Failure due to Blacklisted Username",
+    "description": "Verify login is denied when the username is blacklisted.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Add username to blacklist."
+      },
+      {
+        "type": "action",
+        "description": "Attempt login with blacklisted username and valid password."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login failed with blacklist denial."
+      }
+    ]
+  },
+  {
+    "id": "TC014",
+    "title": "User Login Failure due to Blacklisted HWID",
+    "description": "Verify login is denied when HWID is blacklisted.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Add a HWID to the blacklist."
+      },
+      {
+        "type": "action",
+        "description": "Attempt login with that HWID."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify failure response due to blacklisted HWID."
+      }
+    ]
+  },
+  {
+    "id": "TC015",
+    "title": "User Login Failure due to Version Mismatch",
+    "description": "Verify login is denied with prompt to update if client application version is not supported.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send login request with valid credentials and API key but unsupported version number."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response indicates version mismatch and suggests client update."
+      }
+    ]
+  },
+  {
+    "id": "TC016",
+    "title": "User Login Failure due to Expired Account",
+    "description": "Verify login is denied for users whose expiration date has passed.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Use a user account with expiration date in the past."
+      },
+      {
+        "type": "action",
+        "description": "Attempt login with valid credentials."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login failure due to expiration."
+      }
+    ]
+  },
+  {
+    "id": "TC017",
+    "title": "User Login Failure due to Paused Account",
+    "description": "Verify login is denied when the user account is paused.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Pause a user account."
+      },
+      {
+        "type": "action",
+        "description": "Attempt login with that user’s credentials."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login is denied with paused status message."
+      }
+    ]
+  },
+  {
+    "id": "TC018",
+    "title": "User Login Failure due to Banned Account",
+    "description": "Verify login is denied if the user account is banned.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Ban a user account."
+      },
+      {
+        "type": "action",
+        "description": "Attempt login with that user’s credentials."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify denial of login due to ban with proper message."
+      }
+    ]
+  },
+  {
+    "id": "TC019",
+    "title": "Register End User with License Key",
+    "description": "Verify that end users can be registered successfully through API with valid license keys and expiration information.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send registration request with username, password, valid license key, and expiration data."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user is created and response indicates success (HTTP 201)."
+      }
+    ]
+  },
+  {
+    "id": "TC020",
+    "title": "License Key Creation and Validation",
+    "description": "Verify admin can create license keys and they are valid for user registration with usage limits enforced.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Create license key via API with application ID."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify license key is returned and stored."
+      },
+      {
+        "type": "action",
+        "description": "Attempt user registrations with license key until usage limit exceeded."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify registrations fail after usage limit reached."
+      }
+    ]
+  },
+  {
+    "id": "TC021",
+    "title": "Blacklist Entry Addition and Effectiveness",
+    "description": "Verify admin can add entries to blacklist for IP, username, and HWID and those entries prevent login and registration appropriately.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Add blacklist entries for IP, username, and HWID."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify blacklist entries are correctly saved."
+      },
+      {
+        "type": "action",
+        "description": "Attempt login and registration using blacklisted entities."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login and registration are blocked accordingly."
+      }
+    ]
+  },
+  {
+    "id": "TC022",
+    "title": "Webhook Notification Triggering",
+    "description": "Verify webhooks configured for authentication events are triggered correctly on login, registration, failures, blacklist hits, and account status changes.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Configure webhook for application with Discord embed support."
+      },
+      {
+        "type": "action",
+        "description": "Trigger events: successful login, registration, failed login, blacklist block, user ban, user unban."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify webhook delivers accurate and timely notifications for each event."
+      }
+    ]
+  },
+  {
+    "id": "TC023",
+    "title": "Activity Logs Retrieval and Filtering",
+    "description": "Verify admin can retrieve activity logs and filter by application and user.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Access activity logs dashboard."
+      },
+      {
+        "type": "action",
+        "description": "Apply filters by application ID and user ID."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify filtered logs show correct events and timestamps."
+      }
+    ]
+  },
+  {
+    "id": "TC024",
+    "title": "C# SDK Handles Version Mismatch Gracefully",
+    "description": "Verify the C# SDK detects version mismatches during login and prompts user to update client application with a clear message.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Simulate client login with unsupported version using SDK."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify SDK displays user-friendly dialog about version mismatch and update instructions."
+      }
+    ]
+  },
+  {
+    "id": "TC025",
+    "title": "C# SDK Handles HWID Lock Enforcement",
+    "description": "Verify the C# SDK enforces HWID locking and handles HWID-related errors with clear feedback.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Attempt SDK login with mismatched HWID for an HWID-locked account."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify SDK displays appropriate error related to HWID mismatch and prevents access."
+      },
+      {
+        "type": "action",
+        "description": "Attempt login with correct HWID."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify successful login occurs."
+      }
+    ]
+  },
+  {
+    "id": "TC026",
+    "title": "C# SDK Handles Blacklist Denial",
+    "description": "Verify the C# SDK properly handles blacklist denial errors and shows user-friendly messages.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Attempt login from blacklisted IP or with blacklisted user credentials using SDK."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm SDK displays appropriate blacklist denial messages to user."
+      }
+    ]
+  },
+  {
+    "id": "TC027",
+    "title": "GitHub Backend Data Consistency",
+    "description": "Verify that all CRUD operations for applications, users, licenses, blacklists, and webhooks are stored reliably in GitHub backend JSON files with correct version control.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Perform create, update, delete operations on all resource types through API or dashboard."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify corresponding JSON files in GitHub are updated correctly without data loss or corruption."
+      },
+      {
+        "type": "action",
+        "description": "Simulate concurrent modifications to verify no conflicts or errors occur."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify version control preserves all changes and conflicts handled correctly."
+      }
+    ]
+  },
+  {
+    "id": "TC028",
+    "title": "Rate Limiting Enforcement",
+    "description": "Verify rate limits are enforced on login, registration, and API usage endpoints to prevent abuse.",
+    "category": "security",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Perform a high number of login attempts exceeding rate limit from same IP."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify API returns rate limit exceeded error and blocks further requests temporarily."
+      },
+      {
+        "type": "action",
+        "description": "Perform excessive registration requests."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify rate limiting response is triggered."
+      }
+    ]
+  },
+  {
+    "id": "TC029",
+    "title": "Dashboard UI Management Operations",
+    "description": "Verify the dashboard UI allows admins to perform all management tasks for applications, users, licenses, blacklists, webhooks, and view activity logs with real-time state.",
+    "category": "ui",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Log in as admin and navigate through dashboard."
+      },
+      {
+        "type": "action",
+        "description": "Create, update, and delete entries in all resource sections."
+      },
+      {
+        "type": "action",
+        "description": "Verify UI updates reflect changes immediately and data is consistent."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify no UI errors or inconsistent states occur."
+      }
+    ]
+  },
+  {
+    "id": "TC030",
+    "title": "C# SDK Automatic Update Workflow",
+    "description": "Verify the C# SDK automatically prompts for updates and handles the update process smoothly when a version mismatch or new version is detected.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Simulate SDK login with out-of-date client version."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify SDK triggers auto-update prompt with user-friendly instructions."
+      },
+      {
+        "type": "action",
+        "description": "Follow update workflow within SDK."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify successful completion and ability to re-login post-update."
+      }
+    ]
+  }
+]
