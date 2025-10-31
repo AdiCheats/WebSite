@@ -27,6 +27,7 @@ const insertAppUserSchema = z.object({
   username: z.string().min(1),
   password: z.string().min(1),
   hwid: z.string().optional().or(z.literal("")),
+  hwidLockEnabled: z.boolean().optional(),  // Per-user HWID lock setting
   licenseKey: z.string().optional().or(z.literal("")),
   expiresAt: z.string().optional().or(z.literal("")),
   isActive: z.boolean().optional(),
@@ -834,9 +835,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         processedData.expiresAt = null;
       }
       
-      // Convert empty strings to null
-      if (processedData.hwid === '' || processedData.hwid === undefined) {
-        processedData.hwid = null;
+      // Handle HWID lock setting
+      // If hwidLockEnabled is not specified, check application settings
+      if (processedData.hwidLockEnabled === undefined) {
+        // Default to application's HWID lock setting
+        processedData.hwidLockEnabled = application.hwidLockEnabled ?? false;
+      }
+      
+      // If HWID lock is disabled for this user, clear any provided HWID
+      if (!processedData.hwidLockEnabled) {
+        processedData.hwid = null;  // Don't save HWID if lock is disabled
+      } else {
+        // Convert empty strings to null
+        if (processedData.hwid === '' || processedData.hwid === undefined) {
+          processedData.hwid = null;
+        }
       }
       
       if (processedData.licenseKey === '' || processedData.licenseKey === undefined) {
@@ -1106,6 +1119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         password: z.string().min(1).optional(),
         expiresAt: z.string().optional().or(z.literal("")),
         hwid: z.string().optional().or(z.literal("")),
+        hwidLockEnabled: z.boolean().optional(),
         ip: z.string().optional().or(z.literal("")),
         isActive: z.boolean().optional(),
         isPaused: z.boolean().optional(),
@@ -1122,10 +1136,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         processedData.expiresAt = null;
       }
 
-      // Convert empty strings to null for optional fields
-      if (processedData.hwid === '') {
-        processedData.hwid = null;
+      // If hwidLockEnabled is being disabled, clear the HWID
+      if (processedData.hwidLockEnabled === false) {
+        processedData.hwid = null;  // Clear HWID when disabling HWID lock
+      } else {
+        // Convert empty strings to null for optional fields
+        if (processedData.hwid === '') {
+          processedData.hwid = null;
+        }
       }
+      
       if (processedData.ip === '') {
         processedData.ip = null;
       }
@@ -1458,8 +1478,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // HWID Lock Check
-      if (application.hwidLockEnabled) {
+      // HWID Lock Check - User setting takes priority
+      // If user has HWID lock enabled, enforce it regardless of application setting
+      const userHasHwidLock = user.hwidLockEnabled ?? false;  // User-level HWID lock setting
+      const shouldEnforceHwidLock = userHasHwidLock;  // User setting is the deciding factor
+      
+      if (shouldEnforceHwidLock) {
         if (!hwid) {
           return res.status(400).json({ 
             success: false, 
@@ -1467,7 +1491,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
-        // If user has no HWID set, set it on first login
+        // If user has no HWID set, set it on first login (only if HWID lock is enabled for this user)
         if (!user.hwid) {
           await storage.updateAppUser(user.id, { hwid });
         } else if (user.hwid !== hwid) {
@@ -1495,6 +1519,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             message: application.hwidMismatchMessage || "Hardware ID mismatch detected!" 
           });
         }
+      } else {
+        // HWID lock is disabled for this user - don't save or check HWID
+        // This ensures users created with hwidLockEnabled=false won't have HWID locked
       }
 
       // Reset login attempts on successful login and update last login and IP
@@ -1519,7 +1546,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           metadata: {
             login_time: new Date().toISOString(),
             version: version,
-            hwid_locked: application.hwidLockEnabled && !!user.hwid
+            hwid_locked: shouldEnforceHwidLock && !!user.hwid
           }
         }
       );
@@ -1531,7 +1558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         user_id: user.id,
         username: user.username,
         expires_at: user.expiresAt,
-        hwid_locked: application.hwidLockEnabled && !!user.hwid
+        hwid_locked: shouldEnforceHwidLock && !!user.hwid
       });
     } catch (error) {
       if (error instanceof z.ZodError) {

@@ -48,6 +48,7 @@ export interface AppUser {
   username: string;
   password: string;
   hwid: string | null;
+  hwidLockEnabled: boolean;  // Per-user HWID lock setting
   licenseKey: string | null;
   expiresAt: Date | null;
   isActive: boolean;
@@ -758,6 +759,7 @@ class GitHubService {
       username: userData.username,
       password: hashedPassword,
       hwid: userData.hwid || null,
+      hwidLockEnabled: userData.hwidLockEnabled ?? false,  // Default to false if not specified
       licenseKey: userData.licenseKey || null,
       expiresAt: userData.expiresAt ? new Date(userData.expiresAt) : (defaultSubscription ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null), // Default 30 days if subscription exists
       isActive: userData.isActive ?? true,

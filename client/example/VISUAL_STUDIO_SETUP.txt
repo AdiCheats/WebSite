@@ -1,0 +1,187 @@
+====================================================
+  Visual Studio Project Setup Instructions
+  For AdiCheats C++ Authentication Library
+====================================================
+
+Follow these steps to set up the project in Visual Studio:
+
+STEP 1: Create New Project
+---------------------------
+1. Open Visual Studio (2017 or later)
+2. File → New → Project
+3. Select "Console App" or "Empty Project" (C++)
+4. Name: "AdiCheatsAuth" (or your preferred name)
+5. Click Create
+
+STEP 2: Add Files to Project
+-----------------------------
+1. In Solution Explorer, right-click "Source Files"
+   → Add → Existing Item
+   → Select: login_example.cpp
+
+2. In Solution Explorer, right-click "Header Files"
+   → Add → Existing Item
+   → Select: auth.hpp, json.hpp
+
+3. In Solution Explorer, right-click Project
+   → Add → New Folder → Name it "Curl"
+   
+4. Right-click the "Curl" folder
+   → Add → Existing Item
+   → Select ALL files from the Curl folder:
+      - curl.h
+      - curlver.h
+      - easy.h
+      - header.h
+      - libcurl_a_debug.lib
+      - libcurl_a.lib
+      - mprintf.h
+      - multi.h
+      - options.h
+      - stdcheaders.h
+      - system.h
+      - typecheck-gcc.h
+      - urlapi.h
+      - websockets.h
+
+STEP 3: Configure Project Properties
+-------------------------------------
+1. Right-click Project in Solution Explorer
+   → Properties
+
+2. Make sure "Configuration" is set to "All Configurations"
+   and "Platform" is "Active(x64)" or "All Platforms"
+
+3. Navigate to: C/C++ → General
+   - Additional Include Directories → Click dropdown → <Edit...>
+   - Add new line: $(ProjectDir)Curl
+   - Click OK
+
+4. Navigate to: Linker → General
+   - Additional Library Directories → Click dropdown → <Edit...>
+   - Add new line: $(ProjectDir)Curl
+   - Click OK
+
+5. Navigate to: Linker → Input
+   - Additional Dependencies → Click dropdown → <Edit...>
+   - At the BEGINNING, add these lines:
+     libcurl_a.lib
+     ws2_32.lib
+     Normaliz.lib
+     Crypt32.lib
+     Wldap32.lib
+   - Click OK
+
+6. Navigate to: C/C++ → Preprocessor
+   - Preprocessor Definitions → Click dropdown → <Edit...>
+   - Add new line: CURL_STATICLIB
+   - Click OK
+
+7. Click "Apply" then "OK"
+
+STEP 4: Configure auth.hpp
+---------------------------
+1. Open auth.hpp in the editor
+2. Find lines 39-42 (around line 39)
+3. Replace with YOUR credentials:
+
+   const std::string api_url = ("https://YOUR-REPLIT-URL.replit.dev/api/v1");
+   const std::string api_key = ("YOUR-API-KEY-HERE");
+   const std::string app_version = ("1.0.0");
+
+   Get these from your AdiCheats dashboard:
+   - Applications → Your App → Settings
+
+STEP 5: Build and Run
+----------------------
+1. Press Ctrl+Shift+B to build (or Build → Build Solution)
+2. If build succeeds, press F5 to run with debugger
+   (or Ctrl+F5 to run without debugger)
+
+3. You should see the login prompt:
+   ========================================
+     AdiCheats Authentication System
+   ========================================
+   
+   Username: _
+
+TROUBLESHOOTING
+===============
+
+Problem: "Cannot open include file: 'curl.h'"
+Solution: 
+  - Make sure you added Curl folder to Additional Include Directories
+  - Check that all Curl header files are in the Curl folder
+
+Problem: "Unresolved external symbol curl_easy_init"
+Solution:
+  - Make sure libcurl_a.lib is in Additional Dependencies
+  - Check Additional Library Directories points to Curl folder
+  - Verify CURL_STATICLIB is defined in Preprocessor Definitions
+
+Problem: "LNK1104: cannot open file 'libcurl_a.lib'"
+Solution:
+  - Verify libcurl_a.lib file exists in Curl folder
+  - Check Additional Library Directories is set to $(ProjectDir)Curl
+
+Problem: Build succeeds but "API key not configured" at runtime
+Solution:
+  - Edit auth.hpp and replace placeholder values with actual credentials
+  - Make sure to rebuild after changing auth.hpp
+
+Problem: "The system cannot execute the specified program"
+Solution:
+  - Right-click Project → Properties
+  - Linker → System → SubSystem → Set to "Console (/SUBSYSTEM:CONSOLE)"
+
+PLATFORM NOTES
+==============
+
+For x86 (32-bit):
+  - Use the same steps above
+  - Make sure Platform is set to x86 when configuring
+
+For x64 (64-bit):
+  - Use the same steps above
+  - Make sure Platform is set to x64 when configuring
+
+For Release Build:
+  - Set Configuration to "Release"
+  - Follow same steps as Debug
+
+RECOMMENDED SETTINGS
+====================
+
+For better debugging experience:
+1. Properties → C/C++ → General → Debug Information Format
+   → Program Database (/Zi)
+
+2. Properties → C/C++ → Optimization → Optimization
+   → Disabled (/Od) for Debug
+   → Maximum Optimization (/O2) for Release
+
+3. Properties → C/C++ → Code Generation → Runtime Library
+   → Multi-threaded Debug (/MTd) for Debug
+   → Multi-threaded (/MT) for Release
+
+DISTRIBUTION
+============
+
+When distributing your application:
+1. Build in Release mode
+2. Copy the .exe from Release folder
+3. No additional DLLs needed (static linking)
+4. Users need Windows 7 or later
+
+NEXT STEPS
+==========
+
+1. Test the login with users from your dashboard
+2. Integrate the code into your actual application
+3. See login_example.cpp for ImGui and other integration examples
+4. Read README.md for complete API documentation
+
+====================================================
+  Need help? Check README.md or contact support
+====================================================
+
