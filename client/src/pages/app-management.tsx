@@ -197,13 +197,18 @@ export default function AppManagement() {
       queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/stats`] });
       setIsEditAppDialogOpen(false);
-      toast({ title: "Application updated successfully" });
+      toast({ 
+        variant: "success",
+        title: "Application Updated",
+        description: "Your application settings have been successfully updated."
+      });
     },
     onError: (error: any) => {
       toast({ 
-        title: "Failed to update application", 
-        description: error.message,
-        variant: "destructive" 
+        variant: "destructive",
+        title: "Failed to Update Application", 
+        description: error?.message || "An error occurred while updating the application. Please try again.",
+        duration: 5000
       });
     }
   });
@@ -216,10 +221,19 @@ export default function AppManagement() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/users`] });
       queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/stats`] });
-      toast({ title: "User deleted successfully" });
+      toast({ 
+        variant: "success",
+        title: "User Deleted",
+        description: "The user has been successfully deleted."
+      });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to delete user", description: error.message, variant: "destructive" });
+      toast({ 
+        variant: "destructive",
+        title: "Failed to Delete User", 
+        description: error?.message || "An error occurred while deleting the user. Please try again.",
+        duration: 5000
+      });
     }
   });
 
@@ -228,8 +242,20 @@ export default function AppManagement() {
       apiRequest(`/api/applications/${appId}/users/${userId}/pause`, { method: 'POST' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/users`] });
-      toast({ title: "User paused successfully" });
+      toast({ 
+        variant: "success",
+        title: "User Paused",
+        description: "The user has been successfully paused."
+      });
     },
+    onError: (error: any) => {
+      toast({ 
+        variant: "destructive",
+        title: "Failed to Pause User", 
+        description: error?.message || "An error occurred. Please try again.",
+        duration: 5000
+      });
+    }
   });
 
   const unpauseUserMutation = useMutation({
@@ -237,8 +263,20 @@ export default function AppManagement() {
       apiRequest(`/api/applications/${appId}/users/${userId}/unpause`, { method: 'POST' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/users`] });
-      toast({ title: "User unpaused successfully" });
+      toast({ 
+        variant: "success",
+        title: "User Resumed",
+        description: "The user has been successfully resumed."
+      });
     },
+    onError: (error: any) => {
+      toast({ 
+        variant: "destructive",
+        title: "Failed to Resume User", 
+        description: error?.message || "An error occurred. Please try again.",
+        duration: 5000
+      });
+    }
   });
 
   const resetHwidMutation = useMutation({
@@ -246,8 +284,20 @@ export default function AppManagement() {
       apiRequest(`/api/applications/${appId}/users/${userId}/reset-hwid`, { method: 'POST' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/users`] });
-      toast({ title: "HWID reset successfully" });
+      toast({ 
+        variant: "success",
+        title: "HWID Reset",
+        description: "The hardware ID has been successfully reset."
+      });
     },
+    onError: (error: any) => {
+      toast({ 
+        variant: "destructive",
+        title: "Failed to Reset HWID", 
+        description: error?.message || "An error occurred. Please try again.",
+        duration: 5000
+      });
+    }
   });
 
   const banUserMutation = useMutation({
@@ -255,8 +305,20 @@ export default function AppManagement() {
       apiRequest(`/api/applications/${appId}/users/${userId}/ban`, { method: 'POST' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/users`] });
-      toast({ title: "User banned successfully" });
+      toast({ 
+        variant: "success",
+        title: "User Banned",
+        description: "The user has been successfully banned."
+      });
     },
+    onError: (error: any) => {
+      toast({ 
+        variant: "destructive",
+        title: "Failed to Ban User", 
+        description: error?.message || "An error occurred. Please try again.",
+        duration: 5000
+      });
+    }
   });
 
   const unbanUserMutation = useMutation({
@@ -264,8 +326,20 @@ export default function AppManagement() {
       apiRequest(`/api/applications/${appId}/users/${userId}/unban`, { method: 'POST' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/users`] });
-      toast({ title: "User unbanned successfully" });
+      toast({ 
+        variant: "success",
+        title: "User Unbanned",
+        description: "The user has been successfully unbanned."
+      });
     },
+    onError: (error: any) => {
+      toast({ 
+        variant: "destructive",
+        title: "Failed to Unban User", 
+        description: error?.message || "An error occurred. Please try again.",
+        duration: 5000
+      });
+    }
   });
 
   const updateUserMutation = useMutation({
@@ -276,9 +350,30 @@ export default function AppManagement() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/users`] });
-      toast({ title: "User updated successfully" });
+      toast({ 
+        variant: "success",
+        title: "User Updated",
+        description: "The user has been successfully updated."
+      });
       setIsEditUserDialogOpen(false);
     },
+    onError: (error: any) => {
+      const errorMsg = error?.message || "Unknown error";
+      let description = errorMsg;
+      let title = "Failed to Update User";
+      
+      if (errorMsg.includes("Username already exists")) {
+        title = "Username Already Taken";
+        description = "This username is already taken by another user.";
+      }
+      
+      toast({ 
+        variant: "destructive",
+        title: title,
+        description: description,
+        duration: 5000
+      });
+    }
   });
 
   const createUserMutation = useMutation({
@@ -299,10 +394,39 @@ export default function AppManagement() {
         hwid: "",
         hwidLock: application?.hwidLockEnabled ? "true" : "false"
       });
-      toast({ title: "User created successfully" });
+      toast({ 
+        variant: "success",
+        title: "Success!",
+        description: "User created successfully"
+      });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to create user", description: error?.message || "Unknown error", variant: "destructive" });
+      // Extract user-friendly error message
+      const errorMsg = error?.message || "Unknown error";
+      let description = errorMsg;
+      let title = "Failed to Create User";
+      
+      // Customize messages for common errors
+      if (errorMsg.includes("Username already exists")) {
+        title = "Username Already Taken";
+        description = "This username is already registered for this application. Please choose a different username.";
+      } else if (errorMsg.includes("Invalid or expired license key")) {
+        title = "Invalid License Key";
+        description = "The license key you entered is invalid or has expired. Please check and try again.";
+      } else if (errorMsg.includes("License key has reached maximum user limit")) {
+        title = "License Limit Reached";
+        description = "This license key has reached its maximum user limit. Please use a different license key.";
+      } else if (errorMsg.includes("Invalid input")) {
+        title = "Invalid Input";
+        description = "Please check that all fields are filled in correctly.";
+      }
+      
+      toast({ 
+        variant: "destructive",
+        title: title,
+        description: description,
+        duration: 5000
+      });
     }
   });
 

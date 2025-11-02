@@ -77,15 +77,32 @@ export default function Dashboard() {
       setNewAppDescription("");
       setIsNewAppDialogOpen(false);
       toast({
-        title: "Success",
-        description: "Application created successfully",
+        variant: "success",
+        title: "Application Created!",
+        description: "Your new application has been created successfully.",
       });
     },
     onError: (error: any) => {
+      const errorMsg = error?.message || "Failed to create application";
+      let title = "Creation Failed";
+      let description = errorMsg;
+
+      if (errorMsg.includes("already exists")) {
+        title = "Application Name Taken";
+        description = "An application with this name already exists. Please choose a different name.";
+      } else if (errorMsg.includes("Invalid input")) {
+        title = "Invalid Input";
+        description = "Please check that all fields are filled in correctly.";
+      } else if (errorMsg.includes("permission") || errorMsg.includes("denied")) {
+        title = "Permission Denied";
+        description = "You don't have permission to create applications.";
+      }
+
       toast({
-        title: "Error",
-        description: error.message || "Failed to create application",
         variant: "destructive",
+        title: title,
+        description: description,
+        duration: 5000
       });
     },
   });
@@ -97,15 +114,17 @@ export default function Dashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/applications"] });
       toast({
-        title: "Success",
-        description: "Application deleted successfully",
+        variant: "success",
+        title: "Application Deleted",
+        description: "The application and all associated data have been permanently deleted.",
       });
     },
     onError: (error: any) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to delete application",
         variant: "destructive",
+        title: "Deletion Failed",
+        description: error?.message || "Failed to delete application. Please try again.",
+        duration: 6000
       });
     },
   });
@@ -113,15 +132,28 @@ export default function Dashboard() {
   const createApplication = async () => {
     if (!newAppName.trim()) {
       toast({
-        title: "Error",
-        description: "Please enter an application name",
-        variant: "destructive"
+        variant: "destructive",
+        title: "Application Name Required",
+        description: "Please enter a name for your application to continue.",
+        duration: 5000
       });
       return;
     }
+
+    // Validate application name length
+    if (newAppName.trim().length < 3) {
+      toast({
+        variant: "destructive",
+        title: "Name Too Short",
+        description: "Application name must be at least 3 characters long.",
+        duration: 5000
+      });
+      return;
+    }
+
     createApplicationMutation.mutate({ 
-      name: newAppName, 
-      description: newAppDescription,
+      name: newAppName.trim(), 
+      description: newAppDescription.trim(),
       version: "1.0",
       hwidLockEnabled: true
     });

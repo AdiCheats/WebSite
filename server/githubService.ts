@@ -8,6 +8,32 @@ const GITHUB_REPO = process.env.GITHUB_REPO || "";
 const DATA_FILE = process.env.DATA_FILE || "";
 const BASE_URL = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${DATA_FILE}`;
 
+// Validate configuration on module load
+if (!GITHUB_TOKEN || !GITHUB_USER || !GITHUB_REPO || !DATA_FILE) {
+  console.error("\n" + "=".repeat(70));
+  console.error("❌ CRITICAL: Missing GitHub configuration in .env file!");
+  console.error("=".repeat(70));
+  console.error("GITHUB_TOKEN:", GITHUB_TOKEN ? "✓ Set" : "✗ MISSING");
+  console.error("GITHUB_USER:", GITHUB_USER || "✗ MISSING");
+  console.error("GITHUB_REPO:", GITHUB_REPO || "✗ MISSING");
+  console.error("DATA_FILE:", DATA_FILE || "✗ MISSING");
+  console.error("\n📝 To fix this:");
+  console.error("1. Create a .env file in the project root");
+  console.error("2. Add your GitHub credentials:");
+  console.error("   GITHUB_TOKEN=your_token_here");
+  console.error("   GITHUB_USER=AdiCheats");
+  console.error("   GITHUB_REPO=AimkillAuth");
+  console.error("   DATA_FILE=user.json");
+  console.error("\n🔗 Get a token: https://github.com/settings/tokens");
+  console.error("   (Select 'repo' scope)");
+  console.error("=".repeat(70) + "\n");
+} else {
+  console.log("\n✓ GitHub configuration loaded successfully");
+  console.log(`  Repository: ${GITHUB_USER}/${GITHUB_REPO}`);
+  console.log(`  Data File: ${DATA_FILE}`);
+  console.log(`  Token: ${GITHUB_TOKEN.substring(0, 8)}...${GITHUB_TOKEN.substring(GITHUB_TOKEN.length - 4)}\n`);
+}
+
 // Types
 export interface User {
   id: string;
@@ -181,15 +207,65 @@ interface GitHubData {
 }
 
 class GitHubService {
-  private async getGitHubFile(): Promise<{ data: GitHubData; sha: string | null }> {
+  // In-memory cache for GitHub data
+  private cache: { data: GitHubData; sha: string | null; timestamp: number } | null = null;
+  private readonly CACHE_TTL = 5000; // 5 seconds cache - good balance between freshness and performance
+  private writeQueue: Promise<boolean> = Promise.resolve(true);
+  private pendingWrites = 0;
+
+  // Add retry logic for GitHub API calls
+  private async fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const response = await fetch(url, options);
+        
+        // If successful or non-retryable error, return immediately
+        if (response.status === 200 || response.status === 404 || 
+            response.status === 401 || response.status === 403 || 
+            response.status === 422) {
+          return response;
+        }
+        
+        // If rate limited, wait and retry
+        if (response.status === 429 || response.status >= 500) {
+          const retryAfter = response.headers.get('Retry-After');
+          const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : Math.pow(2, i) * 1000; // Exponential backoff
+          
+          console.log(`GitHub API rate limited or server error (${response.status}). Retrying in ${waitTime}ms... (${i + 1}/${retries})`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+        
+        return response;
+      } catch (error) {
+        if (i === retries - 1) throw error;
+        const waitTime = Math.pow(2, i) * 1000;
+        console.log(`GitHub API request failed. Retrying in ${waitTime}ms... (${i + 1}/${retries})`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+    
+    throw new Error('Failed to fetch from GitHub after retries');
+  }
+
+  private async getGitHubFile(forceRefresh = false): Promise<{ data: GitHubData; sha: string | null }> {
+    // Return cached data if available and not expired
+    if (!forceRefresh && this.cache) {
+      const age = Date.now() - this.cache.timestamp;
+      if (age < this.CACHE_TTL) {
+        return { data: this.cache.data, sha: this.cache.sha };
+      }
+    }
+
     const headers = {
-      "Authorization": `token ${GITHUB_TOKEN}`,
+      "Authorization": `Bearer ${GITHUB_TOKEN}`, // Updated to Bearer token format (more modern)
       "Accept": "application/vnd.github+json",
-      "User-Agent": "phantom-auth-github-service"
+      "X-GitHub-Api-Version": "2022-11-28", // Specify API version
+      "User-Agent": "adi-cheats-auth"
     };
 
     try {
-      const response = await fetch(BASE_URL, { headers });
+      const response = await this.fetchWithRetry(BASE_URL, { headers });
       
       if (response.status === 404) {
         // Initialize a fresh structure when the file doesn't exist yet (similar to Discord bot)
@@ -217,7 +293,26 @@ class GitHubService {
       }
 
       if (response.status !== 200) {
-        throw new Error(`GitHub API error: ${response.status}`);
+        const errorText = await response.text();
+        console.error("\n" + "=".repeat(70));
+        console.error(`❌ GitHub API Error: ${response.status}`);
+        console.error("=".repeat(70));
+        console.error(`URL: ${BASE_URL}`);
+        console.error(`Response: ${errorText}`);
+        
+        if (response.status === 401) {
+          console.error("\n🔒 Authentication Failed!");
+          console.error("   Your GITHUB_TOKEN is invalid or expired.");
+          console.error("   Please create a new token at: https://github.com/settings/tokens");
+          console.error("   Make sure to select the 'repo' scope.");
+        } else if (response.status === 404) {
+          console.error("\n📂 Repository or File Not Found!");
+          console.error(`   Repository: ${GITHUB_USER}/${GITHUB_REPO}`);
+          console.error(`   File: ${DATA_FILE}`);
+          console.error("   Make sure the repository exists and is accessible.");
+        }
+        console.error("=".repeat(70) + "\n");
+        throw new Error(`GitHub API error: ${response.status} - ${errorText}`);
       }
 
       const githubData = await response.json();
@@ -281,38 +376,26 @@ class GitHubService {
         }
       };
       
-      // Additional safety check - ensure all arrays are actually arrays
-      console.log('GitHub data initialization check:', {
-        admin: Array.isArray(data.admin),
-        licenses: Array.isArray(data.licenses),
-        users: Array.isArray(data.users),
-        applications: Array.isArray(data.applications),
-        appUsers: Array.isArray(data.appUsers),
-        licenseKeys: Array.isArray(data.licenseKeys),
-        subscriptions: Array.isArray(data.subscriptions),
-        webhooks: Array.isArray(data.webhooks),
-        blacklistEntries: Array.isArray(data.blacklistEntries),
-        activityLogs: Array.isArray(data.activityLogs),
-        activeSessions: Array.isArray(data.activeSessions)
-      });
-      
-      // Force reinitialize any corrupted arrays
+      // Force reinitialize any corrupted arrays (silently, no console.log)
       if (!Array.isArray(data.appUsers)) {
-        console.log('Force reinitializing appUsers array');
         data.appUsers = [];
       }
       if (!Array.isArray(data.subscriptions)) {
-        console.log('Force reinitializing subscriptions array');
         data.subscriptions = [];
       }
       if (!Array.isArray(data.activityLogs)) {
-        console.log('Force reinitializing activityLogs array');
         data.activityLogs = [];
       }
       if (!Array.isArray(data.activeSessions)) {
-        console.log('Force reinitializing activeSessions array');
         data.activeSessions = [];
       }
+      
+      // Update cache
+      this.cache = {
+        data,
+        sha: githubData.sha,
+        timestamp: Date.now()
+      };
       
       return { data, sha: githubData.sha };
     } catch (error) {
@@ -321,11 +404,28 @@ class GitHubService {
     }
   }
 
-  private async updateGitHubFile(data: GitHubData, sha: string | null, message: string): Promise<boolean> {
+  private async updateGitHubFile(data: GitHubData, sha: string | null, message: string, skipQueue = false): Promise<boolean> {
+    // Queue writes to avoid conflicts and improve performance
+    if (!skipQueue) {
+      this.pendingWrites++;
+      const currentWrite = this.writeQueue.then(() => 
+        this.updateGitHubFile(data, sha, message, true)
+      );
+      this.writeQueue = currentWrite.then(() => {
+        this.pendingWrites--;
+        return true;
+      }).catch(() => {
+        this.pendingWrites--;
+        return false;
+      });
+      return currentWrite;
+    }
+
     const headers = {
-      "Authorization": `token ${GITHUB_TOKEN}`,
+      "Authorization": `Bearer ${GITHUB_TOKEN}`,
       "Accept": "application/vnd.github+json",
-      "User-Agent": "phantom-auth-github-service"
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "adi-cheats-auth"
     };
 
     try {
@@ -339,7 +439,8 @@ class GitHubService {
         data.metadata.lastUpdated = new Date().toISOString();
       }
       
-      const content = JSON.stringify(data, null, 2);
+      // Optimize JSON stringification (removed pretty printing for speed)
+      const content = JSON.stringify(data);
       const encodedContent = Buffer.from(content, 'utf-8').toString('base64');
 
       const payload: any = {
@@ -351,7 +452,7 @@ class GitHubService {
         payload.sha = sha;
       }
 
-      const response = await fetch(BASE_URL, {
+      const response = await this.fetchWithRetry(BASE_URL, {
         method: 'PUT',
         headers: {
           ...headers,
@@ -360,11 +461,44 @@ class GitHubService {
         body: JSON.stringify(payload)
       });
 
-      return response.status === 200 || response.status === 201;
+      if (response.status !== 200 && response.status !== 201) {
+        const errorText = await response.text();
+        let errorMessage = `HTTP ${response.status}`;
+        
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.message || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        
+        // Invalidate cache on error
+        this.cache = null;
+        
+        console.error("GitHub API Error:", response.status, errorMessage);
+        return false;
+      }
+
+      // Update cache immediately with new data and SHA
+      const responseData = await response.json();
+      this.cache = {
+        data,
+        sha: responseData.content?.sha || sha,
+        timestamp: Date.now()
+      };
+
+      return true;
     } catch (error) {
+      // Invalidate cache on error
+      this.cache = null;
       console.error("Error updating GitHub file:", error);
       return false;
     }
+  }
+
+  // Force cache refresh
+  invalidateCache(): void {
+    this.cache = null;
   }
 
   // User Management
@@ -379,6 +513,7 @@ class GitHubService {
   }
 
   async upsertUser(userData: Partial<User>): Promise<User> {
+    // Use cache if available, otherwise fetch fresh
     const { data, sha } = await this.getGitHubFile();
     
     // Ensure users array exists
@@ -413,8 +548,15 @@ class GitHubService {
       data.users.push(newUser);
     }
 
+    // Update cache optimistically before write
+    if (this.cache) {
+      this.cache.data = data;
+    }
+
     const success = await this.updateGitHubFile(data, sha, `Update user: ${userData.id || 'new'}`);
     if (!success) {
+      // Revert cache on failure
+      this.invalidateCache();
       throw new Error("Failed to update user in GitHub");
     }
 
@@ -570,6 +712,7 @@ class GitHubService {
   }
 
   async createApplication(userId: string, appData: any): Promise<Application> {
+    // Use cache if available
     const { data, sha } = await this.getGitHubFile();
     
     const newApp: Application = {
@@ -618,8 +761,14 @@ class GitHubService {
     }
     data.subscriptions.push(defaultSubscription);
 
+    // Update cache optimistically
+    if (this.cache) {
+      this.cache.data = data;
+    }
+
     const success = await this.updateGitHubFile(data, sha, `Create application: ${newApp.name} with default subscription`);
     if (!success) {
+      this.invalidateCache();
       throw new Error("Failed to create application in GitHub");
     }
 
@@ -640,8 +789,13 @@ class GitHubService {
       updatedAt: new Date()
     };
 
+    if (this.cache) {
+      this.cache.data = data;
+    }
+
     const success = await this.updateGitHubFile(data, sha, `Update application: ${data.applications[appIndex].name}`);
     if (!success) {
+      this.invalidateCache();
       throw new Error("Failed to update application in GitHub");
     }
 
@@ -694,7 +848,15 @@ class GitHubService {
     // Remove the application itself
     data.applications.splice(appIndex, 1);
 
+    // Update cache optimistically
+    if (this.cache) {
+      this.cache.data = data;
+    }
+
     const success = await this.updateGitHubFile(data, sha, `Delete application: ${applicationName} (ID: ${applicationId}) with cascade delete`);
+    if (!success) {
+      this.invalidateCache();
+    }
     return success;
   }
 
@@ -728,20 +890,16 @@ class GitHubService {
   }
 
   async createAppUser(applicationId: number, userData: any): Promise<AppUser> {
+    // Use cache if available
     const { data, sha } = await this.getGitHubFile();
-    
-    console.log('GitHub data structure:', JSON.stringify(data, null, 2));
-    console.log('data.subscriptions type:', typeof data.subscriptions, 'isArray:', Array.isArray(data.subscriptions));
     
     const hashedPassword = await bcrypt.hash(userData.password, 10);
     
     // Ensure all required arrays exist with proper type checking
     if (!Array.isArray(data.subscriptions)) {
-      console.log('Initializing subscriptions array');
       data.subscriptions = [];
     }
     if (!Array.isArray(data.appUsers)) {
-      console.log('Initializing appUsers array');
       data.appUsers = [];
     }
     
@@ -784,8 +942,14 @@ class GitHubService {
       defaultSubscription.currentUsers = (defaultSubscription.currentUsers || 0) + 1;
     }
 
+    // Update cache optimistically
+    if (this.cache) {
+      this.cache.data = data;
+    }
+
     const success = await this.updateGitHubFile(data, sha, `Create app user: ${newUser.username} under subscription`);
     if (!success) {
+      this.invalidateCache();
       throw new Error("Failed to create app user in GitHub");
     }
 
@@ -815,7 +979,14 @@ class GitHubService {
 
     (data.appUsers || []).splice(userIndex, 1);
 
+    if (this.cache) {
+      this.cache.data = data;
+    }
+
     const success = await this.updateGitHubFile(data, sha, `Delete app user: ${userId}`);
+    if (!success) {
+      this.invalidateCache();
+    }
     return success;
   }
 
@@ -828,10 +999,17 @@ class GitHubService {
     }
 
     (data.appUsers || [])[userIndex].isPaused = true;
-    (data.appUsers || [])[userIndex].isActive = false; // Set isActive to false when pausing
+    (data.appUsers || [])[userIndex].isActive = false;
     (data.appUsers || [])[userIndex].updatedAt = new Date();
 
+    if (this.cache) {
+      this.cache.data = data;
+    }
+
     const success = await this.updateGitHubFile(data, sha, `Pause app user: ${(data.appUsers || [])[userIndex].username}`);
+    if (!success) {
+      this.invalidateCache();
+    }
     return success;
   }
 
@@ -844,10 +1022,17 @@ class GitHubService {
     }
 
     (data.appUsers || [])[userIndex].isPaused = false;
-    (data.appUsers || [])[userIndex].isActive = true; // Set isActive to true when unpausing
+    (data.appUsers || [])[userIndex].isActive = true;
     (data.appUsers || [])[userIndex].updatedAt = new Date();
 
+    if (this.cache) {
+      this.cache.data = data;
+    }
+
     const success = await this.updateGitHubFile(data, sha, `Unpause app user: ${(data.appUsers || [])[userIndex].username}`);
+    if (!success) {
+      this.invalidateCache();
+    }
     return success;
   }
 
@@ -862,7 +1047,14 @@ class GitHubService {
     (data.appUsers || [])[userIndex].hwid = null;
     (data.appUsers || [])[userIndex].updatedAt = new Date();
 
+    if (this.cache) {
+      this.cache.data = data;
+    }
+
     const success = await this.updateGitHubFile(data, sha, `Reset HWID for app user: ${(data.appUsers || [])[userIndex].username}`);
+    if (!success) {
+      this.invalidateCache();
+    }
     return success;
   }
 
@@ -875,10 +1067,17 @@ class GitHubService {
     }
 
     (data.appUsers || [])[userIndex].isBanned = true;
-    (data.appUsers || [])[userIndex].isActive = false; // Set isActive to false when banning
+    (data.appUsers || [])[userIndex].isActive = false;
     (data.appUsers || [])[userIndex].updatedAt = new Date();
 
+    if (this.cache) {
+      this.cache.data = data;
+    }
+
     const success = await this.updateGitHubFile(data, sha, `Ban app user: ${(data.appUsers || [])[userIndex].username}`);
+    if (!success) {
+      this.invalidateCache();
+    }
     return success;
   }
 
@@ -891,10 +1090,17 @@ class GitHubService {
     }
 
     (data.appUsers || [])[userIndex].isBanned = false;
-    (data.appUsers || [])[userIndex].isActive = true; // Set isActive to true when unbanning
+    (data.appUsers || [])[userIndex].isActive = true;
     (data.appUsers || [])[userIndex].updatedAt = new Date();
 
+    if (this.cache) {
+      this.cache.data = data;
+    }
+
     const success = await this.updateGitHubFile(data, sha, `Unban app user: ${(data.appUsers || [])[userIndex].username}`);
+    if (!success) {
+      this.invalidateCache();
+    }
     return success;
   }
 
@@ -915,7 +1121,14 @@ class GitHubService {
     Object.assign((data.appUsers || [])[userIndex], userData);
     (data.appUsers || [])[userIndex].updatedAt = new Date();
 
+    if (this.cache) {
+      this.cache.data = data;
+    }
+
     const success = await this.updateGitHubFile(data, sha, `Update app user: ${(data.appUsers || [])[userIndex].username}`);
+    if (!success) {
+      this.invalidateCache();
+    }
     return success;
   }
 
