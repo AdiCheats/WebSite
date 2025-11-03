@@ -2693,6 +2693,491 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================================================
+  // NEW LICENSE SYSTEM API - Separate from User System
+  // Base URL: /api/v1/license/*
+  // Storage: License.json (separate from user.json)
+  // ============================================================================
+
+  // Import license service
+  const { licenseService } = await import('./licenseService');
+
+  // Get all licenses for an application
+  app.get('/api/v1/license/:applicationId', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.applicationId);
+      
+      const application = await storage.getApplication(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      // Check if user owns this application
+      const ownerId = req.user.claims.sub;
+      if (application.userId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const licenses = await licenseService.getLicensesByApplication(applicationId);
+      res.json(licenses);
+    } catch (error) {
+      console.error("Error fetching licenses:", error);
+      res.status(500).json({ message: "Failed to fetch licenses" });
+    }
+  });
+
+  // Get specific license by ID
+  app.get('/api/v1/license/:applicationId/:licenseId', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.applicationId);
+      const licenseId = req.params.licenseId;
+      
+      const application = await storage.getApplication(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      // Check if user owns this application
+      const ownerId = req.user.claims.sub;
+      if (application.userId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const license = await licenseService.getLicenseById(licenseId);
+      if (!license || license.applicationId !== applicationId) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      res.json(license);
+    } catch (error) {
+      console.error("Error fetching license:", error);
+      res.status(500).json({ message: "Failed to fetch license" });
+    }
+  });
+
+  // Create new license with custom key
+  app.post('/api/v1/license/:applicationId', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.applicationId);
+      
+      const application = await storage.getApplication(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      // Check if user owns this application
+      const ownerId = req.user.claims.sub;
+      if (application.userId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const createLicenseSchema = z.object({
+        licenseKey: z.string().min(1),
+        maxUsers: z.number().min(1),
+        validityDays: z.number().min(1),
+        description: z.string().optional(),
+        hwidLockEnabled: z.boolean().optional(),
+        hwid: z.string().optional()
+      });
+
+      const validatedData = createLicenseSchema.parse(req.body);
+
+      // Check if license key already exists
+      const existingLicense = await licenseService.getLicenseByKey(validatedData.licenseKey);
+      if (existingLicense) {
+        return res.status(400).json({ message: "License key already exists" });
+      }
+
+      const newLicense = await licenseService.createLicense({
+        ...validatedData,
+        applicationId
+      });
+
+      res.status(201).json(newLicense);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid request data", errors: error.errors });
+      }
+      console.error("Error creating license:", error);
+      res.status(500).json({ message: "Failed to create license" });
+    }
+  });
+
+  // Generate new license (auto-generate key)
+  app.post('/api/v1/license/:applicationId/generate', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.applicationId);
+      
+      const application = await storage.getApplication(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      // Check if user owns this application
+      const ownerId = req.user.claims.sub;
+      if (application.userId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const generateLicenseSchema = z.object({
+        maxUsers: z.number().min(1),
+        validityDays: z.number().min(1),
+        description: z.string().optional(),
+        hwidLockEnabled: z.boolean().optional()
+      });
+
+      const validatedData = generateLicenseSchema.parse(req.body);
+
+      const newLicense = await licenseService.createLicense({
+        ...validatedData,
+        applicationId
+      });
+
+      res.status(201).json(newLicense);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid request data", errors: error.errors });
+      }
+      console.error("Error generating license:", error);
+      res.status(500).json({ message: "Failed to generate license" });
+    }
+  });
+
+  // Update license
+  app.put('/api/v1/license/:applicationId/:licenseId', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.applicationId);
+      const licenseId = req.params.licenseId;
+      
+      const application = await storage.getApplication(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      // Check if user owns this application
+      const ownerId = req.user.claims.sub;
+      if (application.userId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const license = await licenseService.getLicenseById(licenseId);
+      if (!license || license.applicationId !== applicationId) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      const updateLicenseSchema = z.object({
+        maxUsers: z.number().min(1).optional(),
+        validityDays: z.number().min(1).optional(),
+        description: z.string().optional(),
+        hwidLockEnabled: z.boolean().optional(),
+        hwid: z.string().optional().or(z.literal("")),
+        isActive: z.boolean().optional(),
+        expiresAt: z.string().optional()
+      });
+
+      const validatedData = updateLicenseSchema.parse(req.body);
+
+      // Process updates
+      const processedData: any = { ...validatedData };
+      
+      // Handle hwid empty string
+      if (processedData.hwid === '') {
+        processedData.hwid = null;
+      }
+
+      // Handle expiresAt
+      if (processedData.expiresAt) {
+        processedData.expiresAt = new Date(processedData.expiresAt);
+      }
+
+      const updatedLicense = await licenseService.updateLicense(licenseId, processedData);
+      if (!updatedLicense) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      res.json(updatedLicense);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid request data", errors: error.errors });
+      }
+      console.error("Error updating license:", error);
+      res.status(500).json({ message: "Failed to update license" });
+    }
+  });
+
+  // Delete license
+  app.delete('/api/v1/license/:applicationId/:licenseId', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.applicationId);
+      const licenseId = req.params.licenseId;
+      
+      const application = await storage.getApplication(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      // Check if user owns this application
+      const ownerId = req.user.claims.sub;
+      if (application.userId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const license = await licenseService.getLicenseById(licenseId);
+      if (!license || license.applicationId !== applicationId) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      const deleted = await licenseService.deleteLicense(licenseId);
+      if (!deleted) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      res.json({ message: "License deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting license:", error);
+      res.status(500).json({ message: "Failed to delete license" });
+    }
+  });
+
+  // Reset HWID for a license
+  app.post('/api/v1/license/:applicationId/:licenseId/hwid/reset', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.applicationId);
+      const licenseId = req.params.licenseId;
+      
+      const application = await storage.getApplication(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      // Check if user owns this application
+      const ownerId = req.user.claims.sub;
+      if (application.userId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const license = await licenseService.getLicenseById(licenseId);
+      if (!license || license.applicationId !== applicationId) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      const reset = await licenseService.resetLicenseHwid(licenseId);
+      if (!reset) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      res.json({ message: "HWID reset successfully" });
+    } catch (error) {
+      console.error("Error resetting HWID:", error);
+      res.status(500).json({ message: "Failed to reset HWID" });
+    }
+  });
+
+  // Lock HWID for a license
+  app.post('/api/v1/license/:applicationId/:licenseId/hwid/lock', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.applicationId);
+      const licenseId = req.params.licenseId;
+      
+      const application = await storage.getApplication(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      // Check if user owns this application
+      const ownerId = req.user.claims.sub;
+      if (application.userId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const license = await licenseService.getLicenseById(licenseId);
+      if (!license || license.applicationId !== applicationId) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      const lockHwidSchema = z.object({
+        hwid: z.string().min(1)
+      });
+
+      const { hwid } = lockHwidSchema.parse(req.body);
+
+      const locked = await licenseService.lockLicenseHwid(licenseId, hwid);
+      if (!locked) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      res.json({ message: "HWID locked successfully" });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid request data", errors: error.errors });
+      }
+      console.error("Error locking HWID:", error);
+      res.status(500).json({ message: "Failed to lock HWID" });
+    }
+  });
+
+  // Unlock HWID for a license
+  app.post('/api/v1/license/:applicationId/:licenseId/hwid/unlock', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.applicationId);
+      const licenseId = req.params.licenseId;
+      
+      const application = await storage.getApplication(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      // Check if user owns this application
+      const ownerId = req.user.claims.sub;
+      if (application.userId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const license = await licenseService.getLicenseById(licenseId);
+      if (!license || license.applicationId !== applicationId) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      const unlocked = await licenseService.unlockLicenseHwid(licenseId);
+      if (!unlocked) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      res.json({ message: "HWID unlocked successfully" });
+    } catch (error) {
+      console.error("Error unlocking HWID:", error);
+      res.status(500).json({ message: "Failed to unlock HWID" });
+    }
+  });
+
+  // Ban license
+  app.post('/api/v1/license/:applicationId/:licenseId/ban', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.applicationId);
+      const licenseId = req.params.licenseId;
+      
+      const application = await storage.getApplication(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      // Check if user owns this application
+      const ownerId = req.user.claims.sub;
+      if (application.userId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const license = await licenseService.getLicenseById(licenseId);
+      if (!license || license.applicationId !== applicationId) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      const banned = await licenseService.banLicense(licenseId);
+      if (!banned) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      res.json({ message: "License banned successfully" });
+    } catch (error) {
+      console.error("Error banning license:", error);
+      res.status(500).json({ message: "Failed to ban license" });
+    }
+  });
+
+  // Unban license
+  app.post('/api/v1/license/:applicationId/:licenseId/unban', isAuthenticated, async (req: any, res) => {
+    try {
+      const applicationId = parseInt(req.params.applicationId);
+      const licenseId = req.params.licenseId;
+      
+      const application = await storage.getApplication(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      // Check if user owns this application
+      const ownerId = req.user.claims.sub;
+      if (application.userId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const license = await licenseService.getLicenseById(licenseId);
+      if (!license || license.applicationId !== applicationId) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      const unbanned = await licenseService.unbanLicense(licenseId);
+      if (!unbanned) {
+        return res.status(404).json({ message: "License not found" });
+      }
+
+      res.json({ message: "License unbanned successfully" });
+    } catch (error) {
+      console.error("Error unbanning license:", error);
+      res.status(500).json({ message: "Failed to unban license" });
+    }
+  });
+
+  // Validate license (public endpoint for client applications)
+  app.post('/api/v1/license/validate', async (req: any, res) => {
+    try {
+      // Get API key from headers
+      const apiKey = req.headers['x-api-key'];
+      
+      if (!apiKey) {
+        return res.status(401).json({ 
+          success: false,
+          message: "API key is required. Please provide X-API-Key header." 
+        });
+      }
+
+      // Get application from API key
+      const application = await storage.getApplicationByApiKey(apiKey as string);
+      
+      if (!application) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Invalid API key" 
+        });
+      }
+
+      const validateSchema = z.object({
+        licenseKey: z.string().min(1),
+        hwid: z.string().optional()
+      });
+
+      const { licenseKey, hwid } = validateSchema.parse(req.body);
+
+      const result = await licenseService.validateLicense(licenseKey, application.id, hwid);
+      
+      if (!result.valid) {
+        return res.status(400).json({ 
+          success: false, 
+          message: result.message 
+        });
+      }
+
+      res.json({ 
+        success: true, 
+        message: "License is valid",
+        license: result.license
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          success: false,
+          message: "Invalid request data", 
+          errors: error.errors 
+        });
+      }
+      console.error("Error validating license:", error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to validate license" 
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

@@ -15,7 +15,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Settings, ArrowLeft, Users, Activity, Eye, EyeOff, MoreHorizontal, Trash2, Pause, Play, Key, Shield, ShieldOff, Plus, UserPlus, Edit, UserCheck, UserX, Code, MessageSquare, Info, BarChart3, CheckCircle2, XCircle, Ban } from "lucide-react";
+import { Copy, Settings, ArrowLeft, Users, Activity, Eye, EyeOff, MoreHorizontal, Trash2, Pause, Play, Key, Shield, ShieldOff, ShieldCheck, Plus, UserPlus, Edit, UserCheck, UserX, Code, MessageSquare, Info, BarChart3, CheckCircle2, XCircle, Ban, Lock, Unlock, RotateCcw } from "lucide-react";
 import Header from "@/components/header";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
@@ -56,14 +56,18 @@ interface AppUser {
 }
 
 interface LicenseKey {
-  id: number;
+  id: string;  // Changed to string for new system
   licenseKey: string;
+  applicationId: number;
   maxUsers: number;
   currentUsers: number;
   validityDays: number;
   expiresAt: string;
   isActive: boolean;
+  isBanned: boolean;
   description?: string;
+  hwid: string | null;  // NEW: HWID field
+  hwidLockEnabled: boolean;  // NEW: HWID lock status
   createdAt: string;
   updatedAt: string;
 }
@@ -97,6 +101,9 @@ export default function AppManagement() {
   const [isCreateUserDialogOpen, setIsCreateUserDialogOpen] = useState(false);
   const [isEditUserDialogOpen, setIsEditUserDialogOpen] = useState(false);
   const [isCreateLicenseDialogOpen, setIsCreateLicenseDialogOpen] = useState(false);
+  const [isLicenseHwidDialogOpen, setIsLicenseHwidDialogOpen] = useState(false);  // NEW: HWID dialog
+  const [selectedLicense, setSelectedLicense] = useState<LicenseKey | null>(null);  // NEW: Selected license
+  const [customHwid, setCustomHwid] = useState("");  // NEW: Custom HWID input
   const [showApiKey, setShowApiKey] = useState(false);
   const [editAppData, setEditAppData] = useState<Partial<Application>>({});
   const [editUserData, setEditUserData] = useState<Partial<AppUser> & { password?: string }>({});
@@ -160,9 +167,10 @@ export default function AppManagement() {
     enabled: !!appId,
   });
 
-  const { data: licenseKeys = [] } = useQuery<LicenseKey[]>({
-    queryKey: [`/api/applications/${appId}/licenses`],
+  const { data: licenseKeys = [], isLoading: isLoadingLicenses, error: licensesError } = useQuery<LicenseKey[]>({
+    queryKey: [`/api/v1/license/${appId}`],  // NEW API endpoint
     enabled: !!appId,
+    retry: 2,
   });
 
   const { data: customMessages } = useQuery<CustomMessagesDto>({
@@ -432,12 +440,12 @@ export default function AppManagement() {
 
   const createLicenseMutation = useMutation({
     mutationFn: (data: Partial<LicenseKey> & { maxUsers: number; validityDays: number }) =>
-      apiRequest(`/api/applications/${appId}/licenses`, {
+      apiRequest(`/api/v1/license/${appId}`, {  // NEW API endpoint
         method: 'POST',
         body: data,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/v1/license/${appId}`] });  // Updated query key
       setIsCreateLicenseDialogOpen(false);
       setCreateLicenseData({ licenseKey: "", maxUsers: 1, validityDays: 30, description: "", isActive: true, hwidLock: 'false', hwid: "" });
       toast({ title: "License created successfully" });
@@ -524,22 +532,22 @@ export default function AppManagement() {
 
   const generateLicenseMutation = useMutation({
     mutationFn: async () =>
-      apiRequest(`/api/applications/${appId}/licenses/generate`, { method: 'GET' }),
+      apiRequest(`/api/v1/license/${appId}/generate`, { method: 'POST', body: { maxUsers: 1, validityDays: 30 } }),
     onSuccess: (data: any) => {
       setCreateLicenseData(prev => ({
         ...prev,
-        licenseKey: data.generatedKey,
-        maxUsers: data.defaultMaxUsers ?? prev.maxUsers,
-        validityDays: data.defaultValidityDays ?? prev.validityDays,
+        licenseKey: data.licenseKey,
+        maxUsers: data.maxUsers ?? prev.maxUsers,
+        validityDays: data.validityDays ?? prev.validityDays,
       }));
     },
   });
 
   const deleteLicenseMutation = useMutation({
-    mutationFn: (licenseId: number) =>
-      apiRequest(`/api/applications/${appId}/licenses/${licenseId}`, { method: 'DELETE' }),
+    mutationFn: (licenseId: string) =>  // Changed to string
+      apiRequest(`/api/v1/license/${appId}/${licenseId}`, { method: 'DELETE' }),  // NEW API endpoint
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/v1/license/${appId}`] });  // Updated query key
       toast({ title: "License deleted" });
     },
     onError: (error: any) => {
@@ -547,35 +555,11 @@ export default function AppManagement() {
     }
   });
 
-  const pauseLicenseMutation = useMutation({
-    mutationFn: (licenseId: number) =>
-      apiRequest(`/api/applications/${appId}/licenses/${licenseId}/pause`, { method: 'POST' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
-      toast({ title: "License paused" });
-    },
-    onError: (error: any) => {
-      toast({ title: "Failed to pause", description: error?.message || 'Unknown error', variant: 'destructive' });
-    }
-  });
-
-  const resumeLicenseMutation = useMutation({
-    mutationFn: (licenseId: number) =>
-      apiRequest(`/api/applications/${appId}/licenses/${licenseId}/resume`, { method: 'POST' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
-      toast({ title: "License resumed" });
-    },
-    onError: (error: any) => {
-      toast({ title: "Failed to resume", description: error?.message || 'Unknown error', variant: 'destructive' });
-    }
-  });
-
   const banLicenseMutation = useMutation({
-    mutationFn: (licenseId: number) =>
-      apiRequest(`/api/applications/${appId}/licenses/${licenseId}/ban`, { method: 'POST' }),
+    mutationFn: (licenseId: string) =>  // Changed to string
+      apiRequest(`/api/v1/license/${appId}/${licenseId}/ban`, { method: 'POST' }),  // NEW API endpoint
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/v1/license/${appId}`] });  // Updated query key
       toast({ title: "License banned" });
     },
     onError: (error: any) => {
@@ -584,10 +568,10 @@ export default function AppManagement() {
   });
 
   const unbanLicenseMutation = useMutation({
-    mutationFn: (licenseId: number) =>
-      apiRequest(`/api/applications/${appId}/licenses/${licenseId}/unban`, { method: 'POST' }),
+    mutationFn: (licenseId: string) =>  // Changed to string
+      apiRequest(`/api/v1/license/${appId}/${licenseId}/unban`, { method: 'POST' }),  // NEW API endpoint
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/v1/license/${appId}`] });  // Updated query key
       toast({ title: "License unbanned" });
     },
     onError: (error: any) => {
@@ -595,15 +579,40 @@ export default function AppManagement() {
     }
   });
 
-  const extendLicenseMutation = useMutation({
-    mutationFn: ({ licenseId, days }: { licenseId: number; days: number }) =>
-      apiRequest(`/api/applications/${appId}/licenses/${licenseId}/extend`, { method: 'POST', body: { days } }),
+  // NEW: HWID Management Mutations
+  const resetLicenseHwidMutation = useMutation({
+    mutationFn: (licenseId: string) =>
+      apiRequest(`/api/v1/license/${appId}/${licenseId}/hwid/reset`, { method: 'POST' }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/applications/${appId}/licenses`] });
-      toast({ title: "License extended" });
+      queryClient.invalidateQueries({ queryKey: [`/api/v1/license/${appId}`] });
+      toast({ title: "HWID reset successfully" });
     },
     onError: (error: any) => {
-      toast({ title: "Failed to extend", description: error?.message || 'Unknown error', variant: 'destructive' });
+      toast({ title: "Failed to reset HWID", description: error?.message || 'Unknown error', variant: 'destructive' });
+    }
+  });
+
+  const lockLicenseHwidMutation = useMutation({
+    mutationFn: ({ licenseId, hwid }: { licenseId: string; hwid: string }) =>
+      apiRequest(`/api/v1/license/${appId}/${licenseId}/hwid/lock`, { method: 'POST', body: { hwid } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/v1/license/${appId}`] });
+      toast({ title: "HWID locked successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to lock HWID", description: error?.message || 'Unknown error', variant: 'destructive' });
+    }
+  });
+
+  const unlockLicenseHwidMutation = useMutation({
+    mutationFn: (licenseId: string) =>
+      apiRequest(`/api/v1/license/${appId}/${licenseId}/hwid/unlock`, { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/v1/license/${appId}`] });
+      toast({ title: "HWID unlocked successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to unlock HWID", description: error?.message || 'Unknown error', variant: 'destructive' });
     }
   });
 
@@ -1677,18 +1686,40 @@ export default function AppManagement() {
                       <DialogFooter>
                         <Button variant="outline" onClick={() => setIsCreateLicenseDialogOpen(false)}>Cancel</Button>
                         <Button onClick={() => {
+                          // Ensure license key is always generated if empty
+                          const finalLicenseKey = createLicenseData.licenseKey?.trim() || generateLicenseKey();
+                          
+                          if (!finalLicenseKey) {
+                            toast({ 
+                              title: "Error", 
+                              description: "Failed to generate license key", 
+                              variant: "destructive" 
+                            });
+                            return;
+                          }
+
                           const payload: any = {
-                            licenseKey: createLicenseData.licenseKey?.trim() ? createLicenseData.licenseKey : undefined,
+                            licenseKey: finalLicenseKey,
                             maxUsers: createLicenseData.maxUsers,
                             validityDays: createLicenseData.validityDays,
-                            description: createLicenseData.description?.trim() ? createLicenseData.description : undefined,
-                            isActive: createLicenseData.isActive,
+                            description: createLicenseData.description?.trim() || undefined,
                           };
+                          
+                          // Handle HWID lock settings for new API
                           if (createLicenseData.hwidLock === 'true') {
-                            payload.hwid = "";
+                            payload.hwidLockEnabled = true;
+                            // Don't send hwid field if not provided
                           } else if (createLicenseData.hwidLock === 'custom') {
-                            payload.hwid = (createLicenseData.hwid || '').trim();
+                            payload.hwidLockEnabled = true;
+                            const customHwidValue = (createLicenseData.hwid || '').trim();
+                            if (customHwidValue) {
+                              payload.hwid = customHwidValue;
+                            }
+                          } else {
+                            payload.hwidLockEnabled = false;
+                            // Don't send hwid field for false
                           }
+                          
                           createLicenseMutation.mutate(payload);
                         }} disabled={createLicenseMutation.isPending}>
                           {createLicenseMutation.isPending ? 'Creating…' : 'Create License'}
@@ -1700,7 +1731,23 @@ export default function AppManagement() {
 
                 <Card>
                   <CardContent className="p-0">
-                    {licenseKeys.length === 0 ? (
+                    {isLoadingLicenses ? (
+                      <div className="text-center py-12">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                        <p className="text-muted-foreground">Loading licenses...</p>
+                      </div>
+                    ) : licensesError ? (
+                      <div className="text-center py-12">
+                        <XCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+                        <h3 className="text-lg font-medium mb-2">Error loading licenses</h3>
+                        <p className="text-muted-foreground mb-4">
+                          {(licensesError as any)?.message || "Failed to load license keys"}
+                        </p>
+                        <Button onClick={() => queryClient.invalidateQueries({ queryKey: [`/api/v1/license/${appId}`] })}>
+                          Try Again
+                        </Button>
+                      </div>
+                    ) : licenseKeys.length === 0 ? (
                       <div className="text-center py-12">
                         <Key className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                         <h3 className="text-lg font-medium mb-2">No license keys</h3>
@@ -1715,97 +1762,195 @@ export default function AppManagement() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>License Key</TableHead>
-                            <TableHead>Validity</TableHead>
+                            <TableHead>HWID</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Expires</TableHead>
-                            <TableHead>Created</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {licenseKeys.map((license) => (
+                          {licenseKeys.map((license) => {
+                            const isExpired = new Date(license.expiresAt) < new Date();
+                            
+                            return (
                             <TableRow key={license.id} className="hover:bg-muted/50">
                               <TableCell>
-                                <code className="text-xs bg-muted px-2 py-1 rounded break-all whitespace-pre-wrap">
-                                  {license.licenseKey}
-                                </code>
+                                <div className="flex items-center gap-2">
+                                  <code className="text-xs bg-muted px-2 py-1 rounded break-all whitespace-pre-wrap">
+                                    {license.licenseKey}
+                                  </code>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(license.licenseKey);
+                                      toast({ title: "Copied to clipboard" });
+                                    }}
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                                {license.description && (
+                                  <p className="text-sm text-muted-foreground mt-1">{license.description}</p>
+                                )}
                               </TableCell>
                               
                               <TableCell>
-                                <span className="text-sm">{license.validityDays} days</span>
-                              </TableCell>
-                              <TableCell>
-                                { (license as any).isBanned ? (
-                                  <Badge variant="destructive">Banned</Badge>
-                                ) : license.isActive ? (
-                                  <Badge>Active</Badge>
-                                ) : (
-                                  <Badge variant="secondary">Paused</Badge>
-                                ) }
-                              </TableCell>
-                              <TableCell>
-                                <span className="text-sm">
-                                  {new Date(license.expiresAt).toLocaleDateString()}
-                                </span>
-                              </TableCell>
-                              <TableCell>
-                                <span className="text-sm">
-                                  {new Date(license.createdAt).toLocaleDateString()}
-                                </span>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="sm">
-                                      <MoreHorizontal className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => {
-                                      const days = Number(prompt('Extend by how many days?'));
-                                      if (Number.isFinite(days) && days > 0) extendLicenseMutation.mutate({ licenseId: license.id, days });
-                                    }}>
-                                      <Plus className="h-4 w-4 mr-2" />
-                                      Extend
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => (license.isActive ? pauseLicenseMutation.mutate(license.id) : resumeLicenseMutation.mutate(license.id))}>
-                                      {license.isActive ? (
-                                        <><Pause className="h-4 w-4 mr-2" />Pause</>
-                                      ) : (
-                                        <><Play className="h-4 w-4 mr-2" />Resume</>
+                                <div className="flex flex-col gap-1">
+                                  {license.hwid ? (
+                                    <>
+                                      <div className="flex items-center gap-2">
+                                        <code className="text-xs bg-muted px-2 py-1 rounded break-all">
+                                          {license.hwid}
+                                        </code>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(license.hwid);
+                                            toast({ title: "HWID copied to clipboard" });
+                                          }}
+                                        >
+                                          <Copy className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                      {license.hwidLockEnabled && (
+                                        <Badge variant="default" className="w-fit flex items-center gap-1 mt-1">
+                                          <ShieldCheck className="h-3 w-3" />
+                                          Locked
+                                        </Badge>
                                       )}
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => (license as any).isBanned ? unbanLicenseMutation.mutate(license.id) : banLicenseMutation.mutate(license.id)}>
-                                      <Ban className="h-4 w-4 mr-2" />
-                                      {(license as any).isBanned ? 'Unban' : 'Ban'}
-                                    </DropdownMenuItem>
-                                    <AlertDialog>
-                                      <AlertDialogTrigger asChild>
-                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-600">
-                                          <Trash2 className="h-4 w-4 mr-2" />
+                                    </>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm text-muted-foreground">
+                                        {license.hwidLockEnabled ? "Not set yet" : "No HWID lock"}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </TableCell>
+
+                              <TableCell>
+                                <div className="flex flex-col gap-1">
+                                  <Badge 
+                                    variant={
+                                      license.isBanned ? "destructive" :
+                                      isExpired ? "destructive" : 
+                                      !license.isActive ? "secondary" : 
+                                      license.currentUsers >= license.maxUsers ? "outline" :
+                                      "default"
+                                    }
+                                  >
+                                    {license.isBanned ? "Banned" :
+                                     isExpired ? "Expired" : 
+                                     !license.isActive ? "Inactive" :
+                                     license.currentUsers >= license.maxUsers ? "Full" :
+                                     "Active"}
+                                  </Badge>
+                                </div>
+                              </TableCell>
+
+                              <TableCell>
+                                <div className="flex flex-col">
+                                  <span className="text-sm">
+                                    {new Date(license.expiresAt).toLocaleDateString()}
+                                  </span>
+                                  {!isExpired && (
+                                    <span className="text-xs text-muted-foreground">
+                                      {Math.ceil((new Date(license.expiresAt).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))} days left
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+
+                              <TableCell className="text-right">
+                                <div className="flex gap-1 justify-end">
+                                  {/* HWID Management */}
+                                  {license.hwidLockEnabled ? (
+                                    <>
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm"
+                                        onClick={() => resetLicenseHwidMutation.mutate(license.id)}
+                                        disabled={!license.hwid}
+                                        title="Reset HWID"
+                                      >
+                                        <RotateCcw className="h-4 w-4" />
+                                      </Button>
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm"
+                                        onClick={() => unlockLicenseHwidMutation.mutate(license.id)}
+                                        title="Disable HWID Lock"
+                                      >
+                                        <Unlock className="h-4 w-4" />
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm"
+                                      onClick={() => {
+                                        setSelectedLicense(license);
+                                        setIsLicenseHwidDialogOpen(true);
+                                      }}
+                                      title="Lock Custom HWID"
+                                    >
+                                      <Lock className="h-4 w-4" />
+                                    </Button>
+                                  )}
+
+                                  {/* Ban/Unban */}
+                                  {license.isBanned ? (
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm"
+                                      onClick={() => unbanLicenseMutation.mutate(license.id)}
+                                      title="Unban License"
+                                    >
+                                      <ShieldCheck className="h-4 w-4 text-green-600" />
+                                    </Button>
+                                  ) : (
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm"
+                                      onClick={() => banLicenseMutation.mutate(license.id)}
+                                      title="Ban License"
+                                    >
+                                      <Shield className="h-4 w-4 text-red-600" />
+                                    </Button>
+                                  )}
+
+                                  {/* Delete */}
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button variant="ghost" size="sm" title="Delete License">
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Delete License Key</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Are you sure you want to delete this license key? This action cannot be undone.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={() => deleteLicenseMutation.mutate(license.id)}
+                                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                        >
                                           Delete
-                                        </DropdownMenuItem>
-                                      </AlertDialogTrigger>
-                                      <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                          <AlertDialogTitle>Delete License</AlertDialogTitle>
-                                          <AlertDialogDescription>
-                                            This will permanently remove the license key.
-                                          </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                          <AlertDialogAction onClick={() => deleteLicenseMutation.mutate(license.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                            Delete
-                                          </AlertDialogAction>
-                                        </AlertDialogFooter>
-                                      </AlertDialogContent>
-                                    </AlertDialog>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                </div>
                               </TableCell>
                             </TableRow>
-                          ))}
+                          )})}
                         </TableBody>
                       </Table>
                     )}
@@ -2139,12 +2284,59 @@ export default function AppManagement() {
                   <Label className="text-sm font-medium">Register Endpoint</Label>
                       <Input value={`${window.location.origin}/api/auth/register`} readOnly className="mt-2" />
                 </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+
+                {/* HWID Lock Dialog */}
+                <Dialog open={isLicenseHwidDialogOpen} onOpenChange={setIsLicenseHwidDialogOpen}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Lock Custom HWID</DialogTitle>
+                      <DialogDescription>
+                        Enter a custom HWID to lock this license key
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div>
+                        <Label htmlFor="custom-license-hwid">Hardware ID (HWID)</Label>
+                        <Input
+                          id="custom-license-hwid"
+                          placeholder="Enter HWID..."
+                          value={customHwid}
+                          onChange={(e) => setCustomHwid(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => {
+                        setIsLicenseHwidDialogOpen(false);
+                        setCustomHwid("");
+                      }}>
+                        Cancel
+                      </Button>
+                      <Button 
+                        onClick={() => {
+                          if (!customHwid.trim()) {
+                            toast({ title: "Error", description: "Please enter a HWID", variant: "destructive" });
+                            return;
+                          }
+                          if (selectedLicense) {
+                            lockLicenseHwidMutation.mutate({ licenseId: selectedLicense.id, hwid: customHwid });
+                            setIsLicenseHwidDialogOpen(false);
+                            setCustomHwid("");
+                          }
+                        }} 
+                        disabled={lockLicenseHwidMutation.isPending}
+                      >
+                        {lockLicenseHwidMutation.isPending ? "Locking..." : "Lock HWID"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
               </div>
             )}
 
-          {/* Messages Tab */}
+            {/* Messages Tab */}
             {activeTab === 'messages' && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
