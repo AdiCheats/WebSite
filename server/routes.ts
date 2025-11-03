@@ -2702,6 +2702,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Import license service
   const { licenseService } = await import('./licenseService');
 
+  // ============================================================================
+  // PUBLIC LICENSE ROUTES (must come BEFORE parameterized routes!)
+  // ============================================================================
+  
+  // Clear license cache (for debugging)
+  app.post('/api/v1/license/clear-cache', async (req: any, res) => {
+    try {
+      licenseService.invalidateCache();
+      res.json({ success: true, message: "Cache cleared" });
+    } catch (error) {
+      res.status(500).json({ success: false, message: "Failed to clear cache" });
+    }
+  });
+
+  // Validate license (public endpoint for client applications)
+  // Now validates using embedded application data in License.json
+  app.post('/api/v1/license/validate', async (req: any, res) => {
+    try {
+      console.log('\n=== License Validation Request ===');
+      console.log('Cache status:', licenseService.getCacheStatus());
+      
+      // Get API key from headers
+      const apiKey = req.headers['x-api-key'];
+      
+      if (!apiKey) {
+        console.log('❌ No API key provided');
+        return res.status(401).json({ 
+          success: false,
+          message: "API key is required. Please provide X-API-Key header." 
+        });
+      }
+
+      const validateSchema = z.object({
+        licenseKey: z.string().min(1),
+        hwid: z.string().optional()
+      });
+
+      const { licenseKey, hwid } = validateSchema.parse(req.body);
+      
+      console.log(`API Key: ${apiKey.substring(0, 8)}...`);
+      console.log(`License: ${licenseKey}`);
+
+      // Use new method that validates against embedded application data in License.json
+      const result = await licenseService.validateLicenseWithApiKey(apiKey as string, licenseKey, hwid);
+      
+      if (!result.valid) {
+        console.log(`❌ Validation failed: ${result.message}`);
+        return res.status(401).json({ 
+          success: false, 
+          message: result.message 
+        });
+      }
+
+      console.log('✓ Validation successful');
+      res.json({ 
+        success: true, 
+        message: "License is valid",
+        license: result.license
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          success: false,
+          message: "Invalid request data", 
+          errors: error.errors 
+        });
+      }
+      console.error("Error validating license:", error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to validate license" 
+      });
+    }
+  });
+
+  // ============================================================================
+  // AUTHENTICATED LICENSE ROUTES (with :applicationId parameter)
+  // ============================================================================
+
   // Get all licenses for an application
   app.get('/api/v1/license/:applicationId', isAuthenticated, async (req: any, res) => {
     try {
@@ -2828,9 +2907,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validatedData = generateLicenseSchema.parse(req.body);
 
+      // Embed application data in license for self-contained validation
       const newLicense = await licenseService.createLicense({
         ...validatedData,
-        applicationId
+        applicationId,
+        applicationData: {
+          name: application.name,
+          apiKey: application.apiKey,
+          version: application.version,
+          isActive: application.isActive
+        }
       });
 
       res.status(201).json(newLicense);
@@ -3115,66 +3201,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error unbanning license:", error);
       res.status(500).json({ message: "Failed to unban license" });
-    }
-  });
-
-  // Validate license (public endpoint for client applications)
-  app.post('/api/v1/license/validate', async (req: any, res) => {
-    try {
-      // Get API key from headers
-      const apiKey = req.headers['x-api-key'];
-      
-      if (!apiKey) {
-        return res.status(401).json({ 
-          success: false,
-          message: "API key is required. Please provide X-API-Key header." 
-        });
-      }
-
-      // Get application from API key
-      const application = await storage.getApplicationByApiKey(apiKey as string);
-      
-      if (!application) {
-        return res.status(401).json({ 
-          success: false,
-          message: "Invalid API key" 
-        });
-      }
-
-      const validateSchema = z.object({
-        licenseKey: z.string().min(1),
-        hwid: z.string().optional()
-      });
-
-      const { licenseKey, hwid } = validateSchema.parse(req.body);
-
-      const result = await licenseService.validateLicense(licenseKey, application.id, hwid);
-      
-      if (!result.valid) {
-        return res.status(400).json({ 
-          success: false, 
-          message: result.message 
-        });
-      }
-
-      res.json({ 
-        success: true, 
-        message: "License is valid",
-        license: result.license
-      });
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ 
-          success: false,
-          message: "Invalid request data", 
-          errors: error.errors 
-        });
-      }
-      console.error("Error validating license:", error);
-      res.status(500).json({ 
-        success: false,
-        message: "Failed to validate license" 
-      });
     }
   });
 

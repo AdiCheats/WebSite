@@ -1,57 +1,99 @@
-package com.adicheats;
+package com.projectvb;
 
-import android.app.Activity;
 import android.content.Context;
-import com.adicheats.Auth;
+import android.widget.Toast;
 
 /**
- * Simple Login Example for AdiCheats License System
+ * Simple Login Example for License System
  * 
- * This is a simple wrapper that calls Auth.showLogin() with your credentials.
+ * This class provides an easy way to use Auth.java for license validation.
  * 
- * Author: Adi
- * Version: 2.0
+ * SETUP:
+ * 1. Login to: https://adicheats.auth.kesug.com
+ * 2. Go to Applications > Your App
+ * 3. Copy the API Key
+ * 4. Update API_KEY below with your real API key
+ * 
+ * USAGE:
+ *   LoginExample.login(
+ *       this,
+ *       "YOUR-LICENSE-KEY",
+ *       response -> {
+ *           // Success! License is valid
+ *           Toast.makeText(context, "Licensed!", Toast.LENGTH_SHORT).show();
+ *       },
+ *       response -> {
+ *           // Failed
+ *           Toast.makeText(context, response.message, Toast.LENGTH_LONG).show();
+ *       }
+ *   );
  */
 public class LoginExample {
     
+    // ⚠️ CHANGE THIS! Get your API key from dashboard > Applications > Your App
+    private static final String API_KEY = "80Dlrivjtb9g8rC1idn9BJeVrxQ7iiE6"; // Example: AimkillTest
+    
+    // These are correct, don't change
+    private static final String API_URL = "https://adicheats.auth.kesug.com/api/v1";
+    private static final String APP_VERSION = "1.0";
+    
     /**
-     * Show login screen
-     * Just provide your API URL, API Key, and App Version
-     * 
-     * @param context Your Activity context
-     * @param apiUrl Your API URL (e.g., "https://adicheats.auth.kesug.com/api/v1")
-     * @param apiKey Your API key from dashboard
-     * @param appVersion Your app version (e.g., "1.0")
-     * @param onLoginSuccess Callback when login succeeds (optional, can be null)
+     * Validate a license key (simple method)
+     *
+     * @param context Your activity context
+     * @param licenseKey The license key to validate
+     * @param onSuccess Called when validation succeeds
+     * @param onError Called when validation fails
      */
-    public static void showLogin(
+    public static void login(
             Context context, 
-            String apiUrl, 
-            String apiKey, 
-            String appVersion,
-            Auth.LoginSuccessCallback onLoginSuccess) {
+            String licenseKey,
+            LoginCallback onSuccess,
+            LoginCallback onError) {
         
-        // Create Auth instance
-        Auth auth = new Auth(context);
-        
-        // Show login UI with credentials
-        auth.showLogin(apiUrl, apiKey, appVersion, onLoginSuccess);
+        try {
+            // Create and configure Auth
+            Auth auth = new Auth(context);
+            auth.setApiUrl(API_URL)
+                .setApiKey(API_KEY)
+                .setAppVersion(APP_VERSION)
+                .initialize();
+            
+            // Validate license
+            auth.validateLicense(licenseKey, new Auth.AuthCallback() {
+                @Override
+                public void onSuccess(Auth.AuthResponse response) {
+                    if (onSuccess != null) {
+                        onSuccess.onCallback(response);
+                    }
+                }
+                
+                @Override
+                public void onError(String error) {
+                    if (onError != null) {
+                        Auth.AuthResponse errorResponse = new Auth.AuthResponse();
+                        errorResponse.success = false;
+                        errorResponse.message = error;
+                        onError.onCallback(errorResponse);
+                    }
+                }
+            });
+            
+        } catch (Exception e) {
+            Toast.makeText(context, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            if (onError != null) {
+                Auth.AuthResponse errorResponse = new Auth.AuthResponse();
+                errorResponse.success = false;
+                errorResponse.message = e.getMessage();
+                onError.onCallback(errorResponse);
+            }
+        }
     }
     
     /**
-     * Simple login without callback
-     * 
-     * @param context Your Activity context
-     * @param apiUrl Your API URL
-     * @param apiKey Your API key
-     * @param appVersion Your app version
+     * Simple callback interface
      */
-    public static void showLogin(
-            Context context, 
-            String apiUrl, 
-            String apiKey, 
-            String appVersion) {
-        
-        showLogin(context, apiUrl, apiKey, appVersion, null);
+    public interface LoginCallback {
+        void onCallback(Auth.AuthResponse response);
     }
 }

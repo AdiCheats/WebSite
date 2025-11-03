@@ -33,8 +33,15 @@ export const isAuthenticated = async (req: Request, res: Response, next: NextFun
     console.log(`Auth check for ${req.method} ${req.path} - req.user:`, req.user);
     console.log(`Auth check - session:`, req.session);
     
-    // Check if this is a logout request - skip authentication
-    if (req.path === '/api/logout') {
+    // Skip authentication for public endpoints
+    const publicPaths = [
+      '/api/logout',
+      '/api/v1/license/validate',      // Public license validation (uses API key)
+      '/api/v1/license/clear-cache'    // Cache management
+    ];
+    
+    if (publicPaths.includes(req.path)) {
+      console.log(`Skipping auth for public path: ${req.path}`);
       return next();
     }
 

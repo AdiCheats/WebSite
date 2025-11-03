@@ -35,6 +35,13 @@ export interface License {
   hwidLockEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
+  // Application data embedded in license for self-contained validation
+  applicationData?: {
+    name: string;
+    apiKey: string;
+    version: string;
+    isActive: boolean;
+  };
 }
 
 // GitHub Data Structure for Licenses
@@ -270,7 +277,22 @@ class LicenseService {
 
   // Force cache refresh
   invalidateCache(): void {
+    console.log('[LicenseService] Cache invalidated');
     this.cache = null;
+  }
+  
+  // Get cache status
+  getCacheStatus() {
+    if (!this.cache) {
+      return { cached: false, age: 0 };
+    }
+    const age = Date.now() - this.cache.timestamp;
+    return {
+      cached: true,
+      age,
+      licensesCount: this.cache.data.licenses?.length || 0,
+      stale: age > this.CACHE_TTL
+    };
   }
 
   // Get all licenses
@@ -306,6 +328,12 @@ class LicenseService {
     description?: string;
     hwidLockEnabled?: boolean;
     hwid?: string;
+    applicationData?: {
+      name: string;
+      apiKey: string;
+      version: string;
+      isActive: boolean;
+    };
   }): Promise<License> {
     const { data, sha } = await this.getLicenseFile();
     
@@ -323,7 +351,9 @@ class LicenseService {
       hwid: licenseData.hwid || null,
       hwidLockEnabled: licenseData.hwidLockEnabled ?? false,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      // Embed application data in license for self-contained validation
+      applicationData: licenseData.applicationData
     };
 
     if (!data.licenses) {
@@ -400,17 +430,79 @@ class LicenseService {
     return success;
   }
 
-  // Validate license key
-  async validateLicense(licenseKey: string, applicationId: number, hwid?: string): Promise<{ valid: boolean; message?: string; license?: License }> {
+  // Validate license key (can work with or without applicationId)
+  async validateLicense(licenseKey: string, applicationId?: number, hwid?: string): Promise<{ valid: boolean; message?: string; license?: License }> {
     const { data } = await this.getLicenseFile();
     
-    const license = (data.licenses || []).find(l => 
-      l.licenseKey === licenseKey && 
-      l.applicationId === applicationId
-    );
+    // Find license by key (and optionally by applicationId)
+    const license = (data.licenses || []).find(l => {
+      if (applicationId) {
+        return l.licenseKey === licenseKey && l.applicationId === applicationId;
+      }
+      return l.licenseKey === licenseKey;
+    });
 
     if (!license) {
       return { valid: false, message: "Invalid license key" };
+    }
+
+    if (!license.isActive) {
+      return { valid: false, message: "License key is inactive" };
+    }
+
+    if (license.isBanned) {
+      return { valid: false, message: "License key is banned" };
+    }
+
+    if (new Date() > new Date(license.expiresAt)) {
+      return { valid: false, message: "License key has expired" };
+    }
+
+    if (license.currentUsers >= license.maxUsers) {
+      return { valid: false, message: "License key has reached maximum user limit" };
+    }
+
+    // Check HWID lock if enabled
+    if (license.hwidLockEnabled && license.hwid && hwid) {
+      if (license.hwid !== hwid) {
+        return { valid: false, message: "Hardware ID mismatch", license };
+      }
+    }
+
+    return { valid: true, license };
+  }
+  
+  // Validate license using embedded application data
+  async validateLicenseWithApiKey(apiKey: string, licenseKey: string, hwid?: string): Promise<{ valid: boolean; message?: string; license?: License }> {
+    const { data } = await this.getLicenseFile();
+    
+    console.log(`[validateLicenseWithApiKey] Looking for license: ${licenseKey}`);
+    console.log(`[validateLicenseWithApiKey] With API key: ${apiKey}`);
+    console.log(`[validateLicenseWithApiKey] Total licenses: ${data.licenses?.length || 0}`);
+    
+    // Debug: log all licenses
+    (data.licenses || []).forEach((l, i) => {
+      console.log(`  License ${i}: ${l.licenseKey}`);
+      console.log(`    Has applicationData: ${!!l.applicationData}`);
+      console.log(`    API Key: ${l.applicationData?.apiKey || 'N/A'}`);
+    });
+    
+    // Find license that matches both the license key and has matching API key in embedded data
+    const license = (data.licenses || []).find(l => 
+      l.licenseKey === licenseKey && 
+      l.applicationData?.apiKey === apiKey
+    );
+
+    if (!license) {
+      console.log(`[validateLicenseWithApiKey] ❌ No matching license found`);
+      return { valid: false, message: "Invalid API key or license key" };
+    }
+    
+    console.log(`[validateLicenseWithApiKey] ✓ Found matching license`);
+
+    // Check if application is active (from embedded data)
+    if (license.applicationData && !license.applicationData.isActive) {
+      return { valid: false, message: "Application is inactive" };
     }
 
     if (!license.isActive) {
