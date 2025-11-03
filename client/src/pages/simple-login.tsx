@@ -208,11 +208,11 @@ export default function SimpleLogin() {
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse" />
-                <span className="text-gray-300 text-sm font-medium">More Features Than KeyAuth</span>
+                <span className="text-gray-300 text-sm font-medium">Realtime Management Dashboard</span>
               </div>
               <div className="flex items-center gap-3">
                 <div className="h-2 w-2 bg-orange-500 rounded-full animate-pulse animation-delay-1000" />
-                <span className="text-gray-300 text-sm font-medium">Overall Better Than KeyAuth</span>
+                <span className="text-gray-300 text-sm font-medium">Advanced Authentication Protection</span>
               </div>
             </div>
             <div className="flex items-center gap-6 text-gray-400 pt-2">

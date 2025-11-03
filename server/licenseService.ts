@@ -55,9 +55,10 @@ interface LicenseData {
 
 class LicenseService {
   private cache: { data: LicenseData; sha: string | null; timestamp: number } | null = null;
-  private readonly CACHE_TTL = 5000; // 5 seconds cache
+  private readonly CACHE_TTL = 3000; // 3 seconds cache (reduced for faster updates)
   private writeQueue: Promise<boolean> = Promise.resolve(true);
   private pendingWrites = 0;
+  private lastWriteTime = 0; // Track when we last wrote to GitHub
 
   // Retry logic for GitHub API calls
   private async fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
@@ -93,6 +94,13 @@ class LicenseService {
   }
 
   private async getLicenseFile(forceRefresh = false): Promise<{ data: LicenseData; sha: string | null }> {
+    // If we wrote recently (within last 10 seconds), always refresh to get latest data
+    const timeSinceLastWrite = Date.now() - this.lastWriteTime;
+    if (!forceRefresh && timeSinceLastWrite < 10000 && timeSinceLastWrite > 0) {
+      console.log(`[LicenseService] Recent write detected (${timeSinceLastWrite}ms ago), forcing refresh`);
+      forceRefresh = true;
+    }
+    
     // Return cached data if available and not expired
     if (!forceRefresh && this.cache) {
       const age = Date.now() - this.cache.timestamp;
@@ -261,12 +269,30 @@ class LicenseService {
 
       // Update cache with new data and SHA
       const responseData = await response.json();
+      const newSha = responseData.content?.sha || sha;
+      
+      // Track write time to trigger fresh reads
+      this.lastWriteTime = Date.now();
+      
+      // Force refresh from GitHub to ensure we have the absolute latest data
+      // This prevents stale cache issues after writes
+      this.invalidateCache();
+      
+      // Small delay to ensure GitHub has processed the write
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Fetch fresh data from GitHub
+      const freshData = await this.getLicenseFile(true);
+      
+      // Update cache with fresh data
       this.cache = {
-        data,
-        sha: responseData.content?.sha || sha,
+        data: freshData.data,
+        sha: freshData.sha || newSha,
         timestamp: Date.now()
       };
 
+      console.log(`[LicenseService] Cache refreshed after write. Licenses count: ${freshData.data.licenses?.length || 0}`);
+      
       return true;
     } catch (error) {
       this.cache = null;
@@ -371,7 +397,10 @@ class LicenseService {
       throw new Error("Failed to create license in GitHub");
     }
 
-    return newLicense;
+    // Cache is automatically refreshed in updateLicenseFile
+    // But ensure we return the license from fresh cache
+    const freshLicense = await this.getLicenseByKey(newLicense.licenseKey);
+    return freshLicense || newLicense;
   }
 
   // Update license
