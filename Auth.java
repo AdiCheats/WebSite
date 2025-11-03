@@ -49,8 +49,8 @@ public class Auth {
     
     // API Configuration
     private String apiUrl = "https://adicheats.auth.kesug.com/api/v1";
-    private String apiKey = "";
-    private String appVersion = "";
+    private String apiKey = "80Dlrivjtb9g8rC1idn9BJeVrxQ7iiE6";
+    private String appVersion = "1.0";
     private Context context;
     private String hwid;
 

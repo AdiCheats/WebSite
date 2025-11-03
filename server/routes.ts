@@ -2867,11 +2867,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "License key already exists" });
       }
 
+      // Embed application data in license for self-contained validation
       const newLicense = await licenseService.createLicense({
         ...validatedData,
-        applicationId
+        applicationId,
+        applicationData: {
+          name: application.name,
+          apiKey: application.apiKey,
+          version: application.version,
+          isActive: application.isActive
+        }
       });
 
+      // Force immediate cache refresh to ensure new license is available
+      await licenseService.forceRefreshCache();
+      
+      console.log(`[License Created] Cache refreshed. New license: ${newLicense.licenseKey}`);
       res.status(201).json(newLicense);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -2919,6 +2930,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
+      // Force immediate cache refresh to ensure new license is available
+      await licenseService.forceRefreshCache();
+      
+      console.log(`[License Created] Cache refreshed. New license: ${newLicense.licenseKey}`);
       res.status(201).json(newLicense);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -2981,6 +2996,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "License not found" });
       }
 
+      // Force cache refresh after update
+      await licenseService.forceRefreshCache();
+
       res.json(updatedLicense);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -3018,6 +3036,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "License not found" });
       }
 
+      // Force cache refresh after delete
+      await licenseService.forceRefreshCache();
+
       res.json({ message: "License deleted successfully" });
     } catch (error) {
       console.error("Error deleting license:", error);
@@ -3051,6 +3072,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!reset) {
         return res.status(404).json({ message: "License not found" });
       }
+
+      // Force cache refresh
+      await licenseService.forceRefreshCache();
 
       res.json({ message: "HWID reset successfully" });
     } catch (error) {
@@ -3092,6 +3116,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "License not found" });
       }
 
+      // Force cache refresh
+      await licenseService.forceRefreshCache();
+
       res.json({ message: "HWID locked successfully" });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -3129,6 +3156,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "License not found" });
       }
 
+      // Force cache refresh
+      await licenseService.forceRefreshCache();
+
       res.json({ message: "HWID unlocked successfully" });
     } catch (error) {
       console.error("Error unlocking HWID:", error);
@@ -3163,6 +3193,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "License not found" });
       }
 
+      // Force cache refresh
+      await licenseService.forceRefreshCache();
+
       res.json({ message: "License banned successfully" });
     } catch (error) {
       console.error("Error banning license:", error);
@@ -3196,6 +3229,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!unbanned) {
         return res.status(404).json({ message: "License not found" });
       }
+
+      // Force cache refresh
+      await licenseService.forceRefreshCache();
 
       res.json({ message: "License unbanned successfully" });
     } catch (error) {

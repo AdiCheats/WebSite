@@ -97,16 +97,27 @@ class LicenseService {
     // If we wrote recently (within last 10 seconds), always refresh to get latest data
     const timeSinceLastWrite = Date.now() - this.lastWriteTime;
     if (!forceRefresh && timeSinceLastWrite < 10000 && timeSinceLastWrite > 0) {
-      console.log(`[LicenseService] Recent write detected (${timeSinceLastWrite}ms ago), forcing refresh`);
+      console.log(`[LicenseService] Recent write detected (${timeSinceLastWrite}ms ago), forcing refresh from GitHub`);
       forceRefresh = true;
+      // Invalidate cache to ensure fresh fetch
+      this.cache = null;
     }
     
-    // Return cached data if available and not expired
+    // Return cached data ONLY if not forcing refresh AND cache is valid
     if (!forceRefresh && this.cache) {
       const age = Date.now() - this.cache.timestamp;
       if (age < this.CACHE_TTL) {
+        console.log(`[LicenseService] Using cached data (age: ${age}ms, ${this.cache.data.licenses?.length || 0} licenses)`);
         return { data: this.cache.data, sha: this.cache.sha };
+      } else {
+        console.log(`[LicenseService] Cache expired (age: ${age}ms), fetching fresh data`);
+        this.cache = null; // Clear expired cache
       }
+    }
+
+    // Force refresh: fetch from GitHub
+    if (forceRefresh) {
+      console.log(`[LicenseService] Fetching fresh data from GitHub (forceRefresh=${forceRefresh})`);
     }
 
     const headers = {
@@ -188,12 +199,14 @@ class LicenseService {
         }
       };
       
-      // Update cache
+      // Update cache with fresh data
       this.cache = {
         data,
         sha: githubData.sha,
         timestamp: Date.now()
       };
+      
+      console.log(`[LicenseService] ✓ Fresh data fetched from GitHub. Licenses: ${data.licenses?.length || 0}, Cache timestamp: ${new Date(this.cache.timestamp).toISOString()}`);
       
       return { data, sha: githubData.sha };
     } catch (error) {
@@ -230,7 +243,52 @@ class LicenseService {
       // Update metadata
       data.metadata.lastUpdated = new Date().toISOString();
       
-      const content = JSON.stringify(data, null, 2);
+      // Convert Date objects to ISO strings for JSON serialization
+      // This ensures proper serialization and that applicationData is included
+      const serializedData: any = {
+        licenses: (data.licenses || []).map(license => {
+          const serialized: any = {
+            id: license.id,
+            licenseKey: license.licenseKey,
+            applicationId: license.applicationId,
+            maxUsers: license.maxUsers,
+            currentUsers: license.currentUsers,
+            validityDays: license.validityDays,
+            expiresAt: license.expiresAt instanceof Date ? license.expiresAt.toISOString() : license.expiresAt,
+            description: license.description,
+            isActive: license.isActive,
+            isBanned: license.isBanned,
+            hwid: license.hwid,
+            hwidLockEnabled: license.hwidLockEnabled,
+            createdAt: license.createdAt instanceof Date ? license.createdAt.toISOString() : license.createdAt,
+            updatedAt: license.updatedAt instanceof Date ? license.updatedAt.toISOString() : license.updatedAt
+          };
+          
+          // Explicitly include applicationData if it exists (should always exist for new licenses)
+          if (license.applicationData) {
+            serialized.applicationData = {
+              name: license.applicationData.name,
+              apiKey: license.applicationData.apiKey,
+              version: license.applicationData.version,
+              isActive: license.applicationData.isActive
+            };
+          }
+          
+          return serialized;
+        }),
+        metadata: data.metadata
+      };
+      
+      // Verify all licenses have applicationData before saving
+      const licensesWithoutAppData = serializedData.licenses.filter((l: any) => !l.applicationData);
+      if (licensesWithoutAppData.length > 0) {
+        console.error(`[updateLicenseFile] ERROR: Found ${licensesWithoutAppData.length} licenses without applicationData:`, 
+          licensesWithoutAppData.map((l: any) => l.licenseKey));
+      } else {
+        console.log(`[updateLicenseFile] ✓ All ${serializedData.licenses.length} licenses have applicationData`);
+      }
+      
+      const content = JSON.stringify(serializedData, null, 2);
       const encodedContent = Buffer.from(content, 'utf-8').toString('base64');
 
       const payload: any = {
@@ -267,31 +325,36 @@ class LicenseService {
         return false;
       }
 
-      // Update cache with new data and SHA
+      // Get response and track write
       const responseData = await response.json();
       const newSha = responseData.content?.sha || sha;
       
-      // Track write time to trigger fresh reads
+      // Mark that we just wrote - this triggers automatic refresh on next read
       this.lastWriteTime = Date.now();
+      console.log(`[LicenseService] Write completed at ${new Date(this.lastWriteTime).toISOString()}`);
       
-      // Force refresh from GitHub to ensure we have the absolute latest data
-      // This prevents stale cache issues after writes
+      // Invalidate cache immediately
       this.invalidateCache();
       
-      // Small delay to ensure GitHub has processed the write
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait longer to ensure GitHub has fully processed the write
+      console.log(`[LicenseService] Waiting 800ms for GitHub to process write...`);
+      await new Promise(resolve => setTimeout(resolve, 800));
       
-      // Fetch fresh data from GitHub
+      // Force fetch fresh data from GitHub
+      console.log(`[LicenseService] Fetching fresh data from GitHub...`);
       const freshData = await this.getLicenseFile(true);
       
-      // Update cache with fresh data
+      // Update cache with fresh data from GitHub
       this.cache = {
         data: freshData.data,
         sha: freshData.sha || newSha,
         timestamp: Date.now()
       };
 
-      console.log(`[LicenseService] Cache refreshed after write. Licenses count: ${freshData.data.licenses?.length || 0}`);
+      const licenseCount = freshData.data.licenses?.length || 0;
+      console.log(`[LicenseService] ✓ Cache refreshed after write:`);
+      console.log(`  Licenses: ${licenseCount}`);
+      console.log(`  Cache timestamp: ${new Date(this.cache.timestamp).toISOString()}`);
       
       return true;
     } catch (error) {
@@ -305,6 +368,25 @@ class LicenseService {
   invalidateCache(): void {
     console.log('[LicenseService] Cache invalidated');
     this.cache = null;
+  }
+  
+  // Force refresh cache from GitHub (public method)
+  async forceRefreshCache(): Promise<void> {
+    console.log('[LicenseService] ===== FORCE REFRESH CACHE =====');
+    const oldCache = this.cache ? { count: this.cache.data.licenses?.length || 0, timestamp: this.cache.timestamp } : null;
+    this.invalidateCache();
+    
+    // Wait a bit to ensure GitHub processed the write
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Force fetch from GitHub
+    const freshData = await this.getLicenseFile(true);
+    
+    const newCount = freshData.data.licenses?.length || 0;
+    console.log(`[LicenseService] ===== CACHE REFRESHED =====`);
+    console.log(`  Before: ${oldCache ? `${oldCache.count} licenses` : 'no cache'}`);
+    console.log(`  After:  ${newCount} licenses`);
+    console.log(`  Cache timestamp: ${this.cache ? new Date(this.cache.timestamp).toISOString() : 'N/A'}`);
   }
   
   // Get cache status
@@ -363,6 +445,11 @@ class LicenseService {
   }): Promise<License> {
     const { data, sha } = await this.getLicenseFile();
     
+    // Ensure applicationData is provided - this is required for validation
+    if (!licenseData.applicationData) {
+      throw new Error("applicationData is required when creating a license. Please provide name, apiKey, version, and isActive.");
+    }
+
     const newLicense: License = {
       id: nanoid(16),
       licenseKey: licenseData.licenseKey || nanoid(32),
@@ -378,14 +465,40 @@ class LicenseService {
       hwidLockEnabled: licenseData.hwidLockEnabled ?? false,
       createdAt: new Date(),
       updatedAt: new Date(),
-      // Embed application data in license for self-contained validation
-      applicationData: licenseData.applicationData
+      // Embed application data in license for self-contained validation - REQUIRED
+      applicationData: {
+        name: licenseData.applicationData.name,
+        apiKey: licenseData.applicationData.apiKey,
+        version: licenseData.applicationData.version,
+        isActive: licenseData.applicationData.isActive
+      }
     };
+
+    console.log(`[createLicense] Creating license with applicationData:`, {
+      name: newLicense.applicationData?.name,
+      apiKey: newLicense.applicationData?.apiKey?.substring(0, 8) + '...',
+      version: newLicense.applicationData?.version,
+      isActive: newLicense.applicationData?.isActive
+    });
 
     if (!data.licenses) {
       data.licenses = [];
     }
     data.licenses.push(newLicense);
+
+    // Verify applicationData is included before saving
+    const lastLicense = data.licenses[data.licenses.length - 1];
+    if (!lastLicense.applicationData) {
+      console.error(`[createLicense] ERROR: applicationData is missing before save! License: ${lastLicense.licenseKey}`);
+      throw new Error("Failed to include applicationData in license before saving");
+    }
+    
+    console.log(`[createLicense] ✓ License created with applicationData:`, {
+      licenseKey: lastLicense.licenseKey,
+      hasApplicationData: !!lastLicense.applicationData,
+      applicationName: lastLicense.applicationData.name,
+      apiKeyPrefix: lastLicense.applicationData.apiKey?.substring(0, 8) + '...'
+    });
 
     if (this.cache) {
       this.cache.data = data;
@@ -417,11 +530,19 @@ class LicenseService {
       updates.hwid = null;
     }
 
-    data.licenses[licenseIndex] = {
+    // When updating, preserve applicationData if not being updated
+    const updatedLicense = {
       ...data.licenses[licenseIndex],
       ...updates,
       updatedAt: new Date()
     };
+    
+    // Ensure applicationData is preserved if not being updated
+    if (!updates.applicationData && data.licenses[licenseIndex].applicationData) {
+      updatedLicense.applicationData = data.licenses[licenseIndex].applicationData;
+    }
+    
+    data.licenses[licenseIndex] = updatedLicense;
 
     if (this.cache) {
       this.cache.data = data;
@@ -503,11 +624,20 @@ class LicenseService {
   
   // Validate license using embedded application data
   async validateLicenseWithApiKey(apiKey: string, licenseKey: string, hwid?: string): Promise<{ valid: boolean; message?: string; license?: License }> {
-    const { data } = await this.getLicenseFile();
+    // If there was a recent write, force refresh to get latest data
+    const timeSinceLastWrite = Date.now() - this.lastWriteTime;
+    const shouldForceRefresh = timeSinceLastWrite < 10000 && timeSinceLastWrite > 0;
+    
+    if (shouldForceRefresh) {
+      console.log(`[validateLicenseWithApiKey] Recent write detected, forcing cache refresh before validation`);
+    }
+    
+    const { data } = await this.getLicenseFile(shouldForceRefresh);
     
     console.log(`[validateLicenseWithApiKey] Looking for license: ${licenseKey}`);
-    console.log(`[validateLicenseWithApiKey] With API key: ${apiKey}`);
-    console.log(`[validateLicenseWithApiKey] Total licenses: ${data.licenses?.length || 0}`);
+    console.log(`[validateLicenseWithApiKey] With API key: ${apiKey.substring(0, 8)}...`);
+    console.log(`[validateLicenseWithApiKey] Total licenses in cache: ${data.licenses?.length || 0}`);
+    console.log(`[validateLicenseWithApiKey] Cache age: ${this.cache ? Date.now() - this.cache.timestamp : 'N/A'}ms`);
     
     // Debug: log all licenses
     (data.licenses || []).forEach((l, i) => {
